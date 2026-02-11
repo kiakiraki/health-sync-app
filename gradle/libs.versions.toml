@@ -11,7 +11,7 @@ composeBom = "2024.09.00"
 healthConnect = "1.1.0-alpha10"
 workManager = "2.9.0"
 ktor = "2.3.7"
-kotlinxSerialization = "1.6.2"
+kotlinxSerialization = "1.10.0"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
