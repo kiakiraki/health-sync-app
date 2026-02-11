@@ -1,0 +1,9 @@
+## local.properties のテンプレート
+## このファイルを local.properties にコピーして実際の値を設定してください
+
+# Android SDK
+sdk.dir=/path/to/your/Android/sdk
+
+# API credentials
+HEALTH_SYNC_API_KEY=your-api-key-here
+HEALTH_SYNC_API_URL=https://your-api-endpoint/sync
