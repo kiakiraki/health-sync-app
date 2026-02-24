@@ -29,7 +29,7 @@ sealed class SyncState {
     data object Idle : SyncState()
     data object Syncing : SyncState()
     data object Success : SyncState()
-    data class Error(val message: String) : SyncState()
+    data class Error(val message: String, val details: String? = null) : SyncState()
 }
 
 @Serializable
@@ -48,12 +48,22 @@ data class BloodPressureRecord(
 )
 
 @Serializable
+data class SleepStageRecord(
+    val stage: Int,
+    @Serializable(with = InstantSerializer::class)
+    val startTime: Instant,
+    @Serializable(with = InstantSerializer::class)
+    val endTime: Instant
+)
+
+@Serializable
 data class SleepRecord(
     val durationMinutes: Long,
     @Serializable(with = InstantSerializer::class)
     val startTime: Instant,
     @Serializable(with = InstantSerializer::class)
-    val endTime: Instant
+    val endTime: Instant,
+    val stages: List<SleepStageRecord> = emptyList()
 )
 
 @Serializable
@@ -104,10 +114,18 @@ data class BloodPressureApi(
 )
 
 @Serializable
+data class SleepStageApi(
+    val stage: String,
+    @SerialName("start_time") val startTime: String,
+    @SerialName("end_time") val endTime: String
+)
+
+@Serializable
 data class SleepSessionApi(
     @SerialName("start_time") val startTime: String,
     @SerialName("end_time") val endTime: String,
-    @SerialName("duration_hours") val durationHours: Double
+    @SerialName("duration_hours") val durationHours: Double,
+    val stages: List<SleepStageApi> = emptyList()
 )
 
 @Serializable

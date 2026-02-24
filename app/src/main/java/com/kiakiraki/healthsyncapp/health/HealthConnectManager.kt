@@ -37,6 +37,36 @@ class HealthConnectManager(private val context: Context) {
         fun isHealthConnectAvailable(context: Context): Boolean {
             return HealthConnectClient.getSdkStatus(context) == HealthConnectClient.SDK_AVAILABLE
         }
+
+        internal fun mergeOverlappingSleepSessions(
+            sessions: List<SleepRecord>
+        ): List<SleepRecord> {
+            if (sessions.isEmpty()) return emptyList()
+
+            val sorted = sessions.sortedBy { it.startTime }
+            val merged = mutableListOf<SleepRecord>()
+
+            var current = sorted.first()
+
+            for (session in sorted.drop(1)) {
+                if (session.startTime <= current.endTime) {
+                    val newStart = if (current.startTime < session.startTime) current.startTime else session.startTime
+                    val newEnd = if (current.endTime > session.endTime) current.endTime else session.endTime
+                    current = SleepRecord(
+                        durationMinutes = java.time.Duration.between(newStart, newEnd).toMinutes(),
+                        startTime = newStart,
+                        endTime = newEnd,
+                        stages = (current.stages + session.stages).sortedBy { it.startTime }
+                    )
+                } else {
+                    merged.add(current)
+                    current = session
+                }
+            }
+            merged.add(current)
+
+            return merged
+        }
     }
 
     fun createPermissionRequestContract() = PermissionController.createRequestPermissionResultContract()
@@ -236,7 +266,14 @@ class HealthConnectManager(private val context: Context) {
                 com.kiakiraki.healthsyncapp.health.SleepRecord(
                     durationMinutes = java.time.Duration.between(it.startTime, it.endTime).toMinutes(),
                     startTime = it.startTime,
-                    endTime = it.endTime
+                    endTime = it.endTime,
+                    stages = it.stages.map { stage ->
+                        SleepStageRecord(
+                            stage = stage.stage,
+                            startTime = stage.startTime,
+                            endTime = stage.endTime
+                        )
+                    }
                 )
             }
 
@@ -244,37 +281,6 @@ class HealthConnectManager(private val context: Context) {
         } catch (e: Exception) {
             emptyList()
         }
-    }
-
-    private fun mergeOverlappingSleepSessions(
-        sessions: List<com.kiakiraki.healthsyncapp.health.SleepRecord>
-    ): List<com.kiakiraki.healthsyncapp.health.SleepRecord> {
-        if (sessions.isEmpty()) return emptyList()
-
-        val sorted = sessions.sortedBy { it.startTime }
-        val merged = mutableListOf<com.kiakiraki.healthsyncapp.health.SleepRecord>()
-
-        var current = sorted.first()
-
-        for (session in sorted.drop(1)) {
-            if (session.startTime <= current.endTime) {
-                // Overlapping - merge by taking earliest start and latest end
-                val newStart = if (current.startTime < session.startTime) current.startTime else session.startTime
-                val newEnd = if (current.endTime > session.endTime) current.endTime else session.endTime
-                current = com.kiakiraki.healthsyncapp.health.SleepRecord(
-                    durationMinutes = java.time.Duration.between(newStart, newEnd).toMinutes(),
-                    startTime = newStart,
-                    endTime = newEnd
-                )
-            } else {
-                // No overlap - add current and start new
-                merged.add(current)
-                current = session
-            }
-        }
-        merged.add(current)
-
-        return merged
     }
 
     suspend fun readStepsRecords(days: Int = 7): List<com.kiakiraki.healthsyncapp.health.StepsRecord> {
