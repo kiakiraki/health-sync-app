@@ -1,6 +1,11 @@
 package com.kiakiraki.healthsyncapp
 
+import android.util.Log
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import android.os.Bundle
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
@@ -37,6 +42,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.platform.LocalContext
+import com.kiakiraki.healthsyncapp.api.ApiException
 import com.kiakiraki.healthsyncapp.api.HealthSyncApiClient
 import com.kiakiraki.healthsyncapp.health.HealthConnectManager
 import com.kiakiraki.healthsyncapp.health.HealthConnectState
@@ -332,12 +339,26 @@ fun HealthDataDisplay(
                 )
             }
             is SyncState.Error -> {
+                val context = LocalContext.current
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(
                     text = "Sync failed: ${syncState.message}",
                     style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.error
+                    color = MaterialTheme.colorScheme.error,
+                    maxLines = 3
                 )
+                if (syncState.details != null) {
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Button(
+                        onClick = {
+                            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                            clipboard.setPrimaryClip(ClipData.newPlainText("Sync Error", syncState.details))
+                            Toast.makeText(context, "Error details copied", Toast.LENGTH_SHORT).show()
+                        }
+                    ) {
+                        Text("Copy Error Details")
+                    }
+                }
             }
             else -> {}
         }
@@ -430,9 +451,17 @@ private suspend fun syncHealthData(
         val result = apiClient.syncHealthData(request)
         result.fold(
             onSuccess = { onStateChange(SyncState.Success) },
-            onFailure = { e -> onStateChange(SyncState.Error(e.message ?: "Unknown error occurred")) }
+            onFailure = { e ->
+                Log.e("HealthSync", "Sync failed", e)
+                val details = (e as? ApiException)?.responseBody
+                if (details != null) {
+                    Log.e("HealthSync", "Response body: $details")
+                }
+                onStateChange(SyncState.Error(e.message ?: "Unknown error occurred", details))
+            }
         )
     } catch (e: Exception) {
+        Log.e("HealthSync", "Sync failed", e)
         onStateChange(SyncState.Error(e.message ?: "Unknown error occurred"))
     }
 }
