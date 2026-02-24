@@ -8,6 +8,7 @@ import com.kiakiraki.healthsyncapp.health.HealthSyncRequest
 import com.kiakiraki.healthsyncapp.health.HeartRateRecord
 import com.kiakiraki.healthsyncapp.health.SleepRecord
 import com.kiakiraki.healthsyncapp.health.SleepSessionApi
+import com.kiakiraki.healthsyncapp.health.SleepStageApi
 import com.kiakiraki.healthsyncapp.health.StepsApi
 import com.kiakiraki.healthsyncapp.health.StepsRecord
 import com.kiakiraki.healthsyncapp.health.WeightRecord
@@ -135,9 +136,27 @@ class HealthSyncApiClient {
                 SleepSessionApi(
                     startTime = formatInstantToIso(sleep.startTime),
                     endTime = formatInstantToIso(sleep.endTime),
-                    durationHours = sleep.durationMinutes / 60.0
+                    durationHours = sleep.durationMinutes / 60.0,
+                    stages = sleep.stages.map { stage ->
+                        SleepStageApi(
+                            stage = mapStageType(stage.stage),
+                            startTime = formatInstantToIso(stage.startTime),
+                            endTime = formatInstantToIso(stage.endTime)
+                        )
+                    }
                 )
             }
+        }
+
+        private fun mapStageType(stageType: Int): String = when (stageType) {
+            1 -> "awake"
+            2 -> "sleeping"
+            3 -> "out_of_bed"
+            4 -> "light"
+            5 -> "deep"
+            6 -> "rem"
+            7 -> "awake_in_bed"
+            else -> "unknown"
         }
 
         private fun buildSteps(stepsRecords: List<StepsRecord>): List<StepsApi> {
@@ -156,4 +175,14 @@ class HealthSyncApiClient {
     }
 }
 
-class ApiException(val statusCode: Int, message: String) : Exception("API Error ($statusCode): $message")
+class ApiException(
+    val statusCode: Int,
+    val responseBody: String
+) : Exception("API Error ($statusCode): ${extractErrorMessage(responseBody)}")
+
+private fun extractErrorMessage(body: String): String {
+    if (body.trimStart().startsWith("<")) {
+        return "Server returned HTML error response"
+    }
+    return body.take(200)
+}
