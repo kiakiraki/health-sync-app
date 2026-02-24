@@ -5,6 +5,7 @@ import com.kiakiraki.healthsyncapp.health.HealthConnectManager
 import com.kiakiraki.healthsyncapp.health.SleepRecord
 import com.kiakiraki.healthsyncapp.health.SleepStageRecord
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.time.Instant
@@ -230,5 +231,223 @@ class SleepStageTest {
     fun `merge returns empty list for empty input`() {
         val merged = HealthConnectManager.mergeOverlappingSleepSessions(emptyList())
         assertTrue(merged.isEmpty())
+    }
+
+    // -- Priority merging: detailed stages (Pixel Watch) preferred over non-detailed (Nest Hub) --
+
+    @Test
+    fun `merge prefers detailed stages and trims non-detailed for overlapping interval`() {
+        // Nest Hub: single "sleeping" stage for the whole session
+        val nestHub = SleepRecord(
+            durationMinutes = 480,
+            startTime = instant("2026-02-24T23:00:00Z"),
+            endTime = instant("2026-02-25T07:00:00Z"),
+            stages = listOf(
+                SleepStageRecord(stage = 2, startTime = instant("2026-02-24T23:00:00Z"), endTime = instant("2026-02-25T07:00:00Z")),
+            )
+        )
+        // Pixel Watch: detailed stages for a sub-interval
+        val pixelWatch = SleepRecord(
+            durationMinutes = 420,
+            startTime = instant("2026-02-24T23:30:00Z"),
+            endTime = instant("2026-02-25T06:30:00Z"),
+            stages = listOf(
+                SleepStageRecord(stage = 4, startTime = instant("2026-02-24T23:30:00Z"), endTime = instant("2026-02-25T01:00:00Z")),
+                SleepStageRecord(stage = 5, startTime = instant("2026-02-25T01:00:00Z"), endTime = instant("2026-02-25T03:00:00Z")),
+                SleepStageRecord(stage = 6, startTime = instant("2026-02-25T03:00:00Z"), endTime = instant("2026-02-25T05:00:00Z")),
+                SleepStageRecord(stage = 4, startTime = instant("2026-02-25T05:00:00Z"), endTime = instant("2026-02-25T06:30:00Z")),
+            )
+        )
+
+        val merged = HealthConnectManager.mergeOverlappingSleepSessions(listOf(nestHub, pixelWatch))
+
+        assertEquals(1, merged.size)
+        assertEquals(instant("2026-02-24T23:00:00Z"), merged[0].startTime)
+        assertEquals(instant("2026-02-25T07:00:00Z"), merged[0].endTime)
+
+        val stages = merged[0].stages
+        assertEquals(6, stages.size)
+
+        // Nest Hub fills the gap before Pixel Watch
+        assertEquals(2, stages[0].stage)
+        assertEquals(instant("2026-02-24T23:00:00Z"), stages[0].startTime)
+        assertEquals(instant("2026-02-24T23:30:00Z"), stages[0].endTime)
+
+        // Pixel Watch detailed stages
+        assertEquals(4, stages[1].stage)
+        assertEquals(instant("2026-02-24T23:30:00Z"), stages[1].startTime)
+        assertEquals(5, stages[2].stage)
+        assertEquals(6, stages[3].stage)
+        assertEquals(4, stages[4].stage)
+        assertEquals(instant("2026-02-25T06:30:00Z"), stages[4].endTime)
+
+        // Nest Hub fills the gap after Pixel Watch
+        assertEquals(2, stages[5].stage)
+        assertEquals(instant("2026-02-25T06:30:00Z"), stages[5].startTime)
+        assertEquals(instant("2026-02-25T07:00:00Z"), stages[5].endTime)
+    }
+
+    @Test
+    fun `merge fully replaces non-detailed stages when detailed covers entire interval`() {
+        val nestHub = SleepRecord(
+            durationMinutes = 420,
+            startTime = instant("2026-02-24T23:30:00Z"),
+            endTime = instant("2026-02-25T06:30:00Z"),
+            stages = listOf(
+                SleepStageRecord(stage = 2, startTime = instant("2026-02-24T23:30:00Z"), endTime = instant("2026-02-25T06:30:00Z")),
+            )
+        )
+        val pixelWatch = SleepRecord(
+            durationMinutes = 480,
+            startTime = instant("2026-02-24T23:00:00Z"),
+            endTime = instant("2026-02-25T07:00:00Z"),
+            stages = listOf(
+                SleepStageRecord(stage = 4, startTime = instant("2026-02-24T23:00:00Z"), endTime = instant("2026-02-25T02:00:00Z")),
+                SleepStageRecord(stage = 5, startTime = instant("2026-02-25T02:00:00Z"), endTime = instant("2026-02-25T05:00:00Z")),
+                SleepStageRecord(stage = 6, startTime = instant("2026-02-25T05:00:00Z"), endTime = instant("2026-02-25T07:00:00Z")),
+            )
+        )
+
+        val merged = HealthConnectManager.mergeOverlappingSleepSessions(listOf(nestHub, pixelWatch))
+
+        assertEquals(1, merged.size)
+        // Nest Hub completely covered by Pixel Watch → only Pixel Watch stages
+        assertEquals(3, merged[0].stages.size)
+        assertEquals(4, merged[0].stages[0].stage)
+        assertEquals(5, merged[0].stages[1].stage)
+        assertEquals(6, merged[0].stages[2].stage)
+    }
+
+    @Test
+    fun `merge combines all stages when both sessions have detailed stages`() {
+        val watch1 = SleepRecord(
+            durationMinutes = 120,
+            startTime = instant("2026-02-24T23:00:00Z"),
+            endTime = instant("2026-02-25T01:00:00Z"),
+            stages = listOf(
+                SleepStageRecord(stage = 4, startTime = instant("2026-02-24T23:00:00Z"), endTime = instant("2026-02-25T01:00:00Z")),
+            )
+        )
+        val watch2 = SleepRecord(
+            durationMinutes = 120,
+            startTime = instant("2026-02-25T00:00:00Z"),
+            endTime = instant("2026-02-25T02:00:00Z"),
+            stages = listOf(
+                SleepStageRecord(stage = 5, startTime = instant("2026-02-25T00:00:00Z"), endTime = instant("2026-02-25T02:00:00Z")),
+            )
+        )
+
+        val merged = HealthConnectManager.mergeOverlappingSleepSessions(listOf(watch1, watch2))
+
+        assertEquals(1, merged.size)
+        // Both have detailed stages → all combined (no priority)
+        assertEquals(2, merged[0].stages.size)
+    }
+
+    // -- hasDetailedStages --
+
+    @Test
+    fun `hasDetailedStages returns true for light deep or rem stages`() {
+        assertTrue(HealthConnectManager.hasDetailedStages(listOf(
+            SleepStageRecord(stage = 4, startTime = Instant.EPOCH, endTime = Instant.EPOCH.plusSeconds(3600))
+        )))
+        assertTrue(HealthConnectManager.hasDetailedStages(listOf(
+            SleepStageRecord(stage = 5, startTime = Instant.EPOCH, endTime = Instant.EPOCH.plusSeconds(3600))
+        )))
+        assertTrue(HealthConnectManager.hasDetailedStages(listOf(
+            SleepStageRecord(stage = 6, startTime = Instant.EPOCH, endTime = Instant.EPOCH.plusSeconds(3600))
+        )))
+    }
+
+    @Test
+    fun `hasDetailedStages returns false for non-detailed stages`() {
+        assertFalse(HealthConnectManager.hasDetailedStages(listOf(
+            SleepStageRecord(stage = 2, startTime = Instant.EPOCH, endTime = Instant.EPOCH.plusSeconds(3600))
+        )))
+        assertFalse(HealthConnectManager.hasDetailedStages(emptyList()))
+    }
+
+    // -- trimStageByIntervals --
+
+    @Test
+    fun `trimStageByIntervals splits stage around covered intervals`() {
+        val stage = SleepStageRecord(
+            stage = 2,
+            startTime = instant("2026-02-24T23:00:00Z"),
+            endTime = instant("2026-02-25T07:00:00Z")
+        )
+        val covered = listOf(
+            SleepStageRecord(stage = 4, startTime = instant("2026-02-24T23:30:00Z"), endTime = instant("2026-02-25T06:30:00Z"))
+        )
+
+        val trimmed = HealthConnectManager.trimStageByIntervals(stage, covered)
+
+        assertEquals(2, trimmed.size)
+        assertEquals(instant("2026-02-24T23:00:00Z"), trimmed[0].startTime)
+        assertEquals(instant("2026-02-24T23:30:00Z"), trimmed[0].endTime)
+        assertEquals(instant("2026-02-25T06:30:00Z"), trimmed[1].startTime)
+        assertEquals(instant("2026-02-25T07:00:00Z"), trimmed[1].endTime)
+        assertEquals(2, trimmed[0].stage)
+        assertEquals(2, trimmed[1].stage)
+    }
+
+    @Test
+    fun `trimStageByIntervals removes stage completely covered`() {
+        val stage = SleepStageRecord(
+            stage = 2,
+            startTime = instant("2026-02-25T00:00:00Z"),
+            endTime = instant("2026-02-25T06:00:00Z")
+        )
+        val covered = listOf(
+            SleepStageRecord(stage = 4, startTime = instant("2026-02-24T23:00:00Z"), endTime = instant("2026-02-25T07:00:00Z"))
+        )
+
+        val trimmed = HealthConnectManager.trimStageByIntervals(stage, covered)
+
+        assertTrue(trimmed.isEmpty())
+    }
+
+    @Test
+    fun `trimStageByIntervals returns stage unchanged when no overlap`() {
+        val stage = SleepStageRecord(
+            stage = 2,
+            startTime = instant("2026-02-24T20:00:00Z"),
+            endTime = instant("2026-02-24T22:00:00Z")
+        )
+        val covered = listOf(
+            SleepStageRecord(stage = 4, startTime = instant("2026-02-24T23:00:00Z"), endTime = instant("2026-02-25T07:00:00Z"))
+        )
+
+        val trimmed = HealthConnectManager.trimStageByIntervals(stage, covered)
+
+        assertEquals(1, trimmed.size)
+        assertEquals(instant("2026-02-24T20:00:00Z"), trimmed[0].startTime)
+        assertEquals(instant("2026-02-24T22:00:00Z"), trimmed[0].endTime)
+    }
+
+    @Test
+    fun `trimStageByIntervals splits stage into three fragments with two covered intervals`() {
+        val stage = SleepStageRecord(
+            stage = 2,
+            startTime = instant("2026-02-24T22:00:00Z"),
+            endTime = instant("2026-02-25T08:00:00Z")
+        )
+        val covered = listOf(
+            SleepStageRecord(stage = 4, startTime = instant("2026-02-24T23:00:00Z"), endTime = instant("2026-02-25T01:00:00Z")),
+            SleepStageRecord(stage = 5, startTime = instant("2026-02-25T03:00:00Z"), endTime = instant("2026-02-25T06:00:00Z")),
+        )
+
+        val trimmed = HealthConnectManager.trimStageByIntervals(stage, covered)
+
+        assertEquals(3, trimmed.size)
+        // Before first covered interval
+        assertEquals(instant("2026-02-24T22:00:00Z"), trimmed[0].startTime)
+        assertEquals(instant("2026-02-24T23:00:00Z"), trimmed[0].endTime)
+        // Gap between covered intervals
+        assertEquals(instant("2026-02-25T01:00:00Z"), trimmed[1].startTime)
+        assertEquals(instant("2026-02-25T03:00:00Z"), trimmed[1].endTime)
+        // After last covered interval
+        assertEquals(instant("2026-02-25T06:00:00Z"), trimmed[2].startTime)
+        assertEquals(instant("2026-02-25T08:00:00Z"), trimmed[2].endTime)
     }
 }

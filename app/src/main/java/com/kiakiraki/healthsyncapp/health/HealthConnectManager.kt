@@ -38,6 +38,66 @@ class HealthConnectManager(private val context: Context) {
             return HealthConnectClient.getSdkStatus(context) == HealthConnectClient.SDK_AVAILABLE
         }
 
+        /**
+         * Returns true if the stages contain at least one detailed sleep stage
+         * (light, deep, or REM). Wearables like Pixel Watch provide these,
+         * while Nest Hub typically only records "sleeping" (type 2).
+         */
+        internal fun hasDetailedStages(stages: List<SleepStageRecord>): Boolean {
+            val detailedTypes = setOf(4, 5, 6) // light, deep, rem
+            return stages.any { it.stage in detailedTypes }
+        }
+
+        /**
+         * Trims a single sleep stage by removing portions that overlap with
+         * the given covered intervals. May return 0, 1, or multiple fragments.
+         */
+        internal fun trimStageByIntervals(
+            stage: SleepStageRecord,
+            coveredIntervals: List<SleepStageRecord>
+        ): List<SleepStageRecord> {
+            val result = mutableListOf<SleepStageRecord>()
+            var currentStart = stage.startTime
+
+            for (covered in coveredIntervals) {
+                if (covered.endTime <= currentStart) continue
+                if (covered.startTime >= stage.endTime) break
+
+                if (covered.startTime > currentStart) {
+                    result.add(stage.copy(
+                        startTime = currentStart,
+                        endTime = minOf(covered.startTime, stage.endTime)
+                    ))
+                }
+                currentStart = maxOf(currentStart, covered.endTime)
+            }
+
+            if (currentStart < stage.endTime) {
+                result.add(stage.copy(
+                    startTime = currentStart,
+                    endTime = stage.endTime
+                ))
+            }
+
+            return result
+        }
+
+        /**
+         * Merges stages from two sources, prioritizing preferred stages.
+         * Fallback stages are trimmed to only cover intervals not covered
+         * by any preferred stage.
+         */
+        internal fun mergeStagesWithPriority(
+            preferred: List<SleepStageRecord>,
+            fallback: List<SleepStageRecord>
+        ): List<SleepStageRecord> {
+            val sortedPreferred = preferred.sortedBy { it.startTime }
+            val trimmedFallback = fallback.flatMap { stage ->
+                trimStageByIntervals(stage, sortedPreferred)
+            }
+            return (sortedPreferred + trimmedFallback).sortedBy { it.startTime }
+        }
+
         internal fun mergeOverlappingSleepSessions(
             sessions: List<SleepRecord>
         ): List<SleepRecord> {
@@ -52,11 +112,23 @@ class HealthConnectManager(private val context: Context) {
                 if (session.startTime <= current.endTime) {
                     val newStart = if (current.startTime < session.startTime) current.startTime else session.startTime
                     val newEnd = if (current.endTime > session.endTime) current.endTime else session.endTime
+
+                    val currentDetailed = hasDetailedStages(current.stages)
+                    val sessionDetailed = hasDetailedStages(session.stages)
+                    val mergedStages = when {
+                        currentDetailed && !sessionDetailed ->
+                            mergeStagesWithPriority(preferred = current.stages, fallback = session.stages)
+                        sessionDetailed && !currentDetailed ->
+                            mergeStagesWithPriority(preferred = session.stages, fallback = current.stages)
+                        else ->
+                            (current.stages + session.stages).sortedBy { it.startTime }
+                    }
+
                     current = SleepRecord(
                         durationMinutes = java.time.Duration.between(newStart, newEnd).toMinutes(),
                         startTime = newStart,
                         endTime = newEnd,
-                        stages = (current.stages + session.stages).sortedBy { it.startTime }
+                        stages = mergedStages
                     )
                 } else {
                     merged.add(current)
