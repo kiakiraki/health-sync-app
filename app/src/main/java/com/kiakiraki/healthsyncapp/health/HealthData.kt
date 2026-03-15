@@ -89,6 +89,34 @@ data class HeartRateRecord(
     val time: Instant
 )
 
+// Meal sync state
+sealed class MealSyncState {
+    data object Idle : MealSyncState()
+    data object Syncing : MealSyncState()
+    data class Success(val written: Int, val skipped: Int) : MealSyncState()
+    data class Error(val message: String) : MealSyncState()
+}
+
+// Meal API response data classes
+@Serializable
+data class MealsResponse(val meals: List<MealData>)
+
+@Serializable
+data class MealData(
+    val id: Int,
+    val date: String,
+    @SerialName("meal_type") val mealType: String,
+    val description: String,
+    @SerialName("calories_kcal") val caloriesKcal: Double? = null,
+    @SerialName("protein_g") val proteinG: Double? = null,
+    @SerialName("fat_g") val fatG: Double? = null,
+    @SerialName("carbs_g") val carbsG: Double? = null,
+    @SerialName("fiber_g") val fiberG: Double? = null,
+    @SerialName("salt_g") val saltG: Double? = null,
+    val note: String? = null,
+    @SerialName("created_at") val createdAt: String? = null
+)
+
 // API Request/Response data classes
 @Serializable
 data class HealthSyncRequest(
