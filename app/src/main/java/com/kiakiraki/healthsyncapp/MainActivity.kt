@@ -48,6 +48,7 @@ import com.kiakiraki.healthsyncapp.api.HealthSyncApiClient
 import com.kiakiraki.healthsyncapp.health.HealthConnectManager
 import com.kiakiraki.healthsyncapp.health.HealthConnectState
 import com.kiakiraki.healthsyncapp.health.HealthSummary
+import com.kiakiraki.healthsyncapp.health.MealSyncState
 import com.kiakiraki.healthsyncapp.health.SyncState
 import com.kiakiraki.healthsyncapp.ui.theme.HealthSyncAppTheme
 import kotlinx.coroutines.launch
@@ -83,6 +84,7 @@ class MainActivity : ComponentActivity() {
 fun HealthSyncScreen(healthConnectManager: HealthConnectManager, apiClient: HealthSyncApiClient) {
     var state by remember { mutableStateOf<HealthConnectState>(HealthConnectState.Loading) }
     var syncState by remember { mutableStateOf<SyncState>(SyncState.Idle) }
+    var mealSyncState by remember { mutableStateOf<MealSyncState>(MealSyncState.Idle) }
     val coroutineScope = rememberCoroutineScope()
 
     val permissionLauncher = rememberLauncherForActivityResult(
@@ -170,6 +172,7 @@ fun HealthSyncScreen(healthConnectManager: HealthConnectManager, apiClient: Heal
                     HealthDataDisplay(
                         summary = currentState.summary,
                         syncState = syncState,
+                        mealSyncState = mealSyncState,
                         onRefresh = {
                             coroutineScope.launch {
                                 state = HealthConnectState.Loading
@@ -180,6 +183,12 @@ fun HealthSyncScreen(healthConnectManager: HealthConnectManager, apiClient: Heal
                             coroutineScope.launch {
                                 syncState = SyncState.Syncing
                                 syncHealthData(healthConnectManager, apiClient) { syncState = it }
+                            }
+                        },
+                        onMealSync = {
+                            coroutineScope.launch {
+                                mealSyncState = MealSyncState.Syncing
+                                syncMealData(healthConnectManager, apiClient) { mealSyncState = it }
                             }
                         }
                     )
@@ -213,8 +222,10 @@ fun HealthSyncScreen(healthConnectManager: HealthConnectManager, apiClient: Heal
 fun HealthDataDisplay(
     summary: HealthSummary,
     syncState: SyncState,
+    mealSyncState: MealSyncState,
     onRefresh: () -> Unit,
-    onSync: () -> Unit
+    onSync: () -> Unit,
+    onMealSync: () -> Unit
 ) {
     val context = LocalContext.current
 
@@ -226,6 +237,23 @@ fun HealthDataDisplay(
             }
             is SyncState.Error -> {
                 Toast.makeText(context, "Sync failed: ${syncState.message}", Toast.LENGTH_LONG).show()
+            }
+            else -> {}
+        }
+    }
+
+    // Show toast on meal sync state changes
+    LaunchedEffect(mealSyncState) {
+        when (mealSyncState) {
+            is MealSyncState.Success -> {
+                Toast.makeText(
+                    context,
+                    "Meal sync: ${mealSyncState.written} written, ${mealSyncState.skipped} skipped",
+                    Toast.LENGTH_SHORT
+                ).show()
+            }
+            is MealSyncState.Error -> {
+                Toast.makeText(context, "Meal sync failed: ${mealSyncState.message}", Toast.LENGTH_LONG).show()
             }
             else -> {}
         }
@@ -265,6 +293,28 @@ fun HealthDataDisplay(
                     }
                     else -> Text("Sync to Cloud")
                 }
+            }
+        }
+
+        // Meal sync button
+        Button(
+            onClick = onMealSync,
+            modifier = Modifier.fillMaxWidth(),
+            enabled = mealSyncState !is MealSyncState.Syncing
+        ) {
+            when (mealSyncState) {
+                is MealSyncState.Syncing -> {
+                    CircularProgressIndicator(
+                        modifier = Modifier
+                            .padding(end = 8.dp)
+                            .height(20.dp)
+                            .width(20.dp),
+                        color = MaterialTheme.colorScheme.onPrimary,
+                        strokeWidth = 2.dp
+                    )
+                    Text("Syncing Meals...")
+                }
+                else -> Text("Sync Meals to Health Connect")
             }
         }
 
@@ -458,5 +508,30 @@ private suspend fun syncHealthData(
     } catch (e: Exception) {
         Log.e("HealthSync", "Sync failed", e)
         onStateChange(SyncState.Error(e.message ?: "Unknown error occurred"))
+    }
+}
+
+private suspend fun syncMealData(
+    healthConnectManager: HealthConnectManager,
+    apiClient: HealthSyncApiClient,
+    onStateChange: (MealSyncState) -> Unit
+) {
+    try {
+        val result = apiClient.fetchMeals(days = 7)
+        result.fold(
+            onSuccess = { meals ->
+                Log.d("HealthSync", "Fetched ${meals.size} meals from API")
+                val (written, skipped) = healthConnectManager.writeNutritionRecords(meals)
+                Log.d("HealthSync", "Meal sync complete: $written written, $skipped skipped")
+                onStateChange(MealSyncState.Success(written, skipped))
+            },
+            onFailure = { e ->
+                Log.e("HealthSync", "Meal sync failed", e)
+                onStateChange(MealSyncState.Error(e.message ?: "Unknown error occurred"))
+            }
+        )
+    } catch (e: Exception) {
+        Log.e("HealthSync", "Meal sync failed", e)
+        onStateChange(MealSyncState.Error(e.message ?: "Unknown error occurred"))
     }
 }

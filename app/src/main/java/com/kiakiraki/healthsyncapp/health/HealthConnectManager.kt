@@ -1,12 +1,15 @@
 package com.kiakiraki.healthsyncapp.health
 
 import android.content.Context
+import android.util.Log
 import androidx.health.connect.client.HealthConnectClient
 import androidx.health.connect.client.PermissionController
 import androidx.health.connect.client.permission.HealthPermission
 import androidx.health.connect.client.records.BloodPressureRecord
 import androidx.health.connect.client.records.BodyFatRecord
 import androidx.health.connect.client.records.HeartRateRecord
+import androidx.health.connect.client.records.MealType
+import androidx.health.connect.client.records.NutritionRecord
 import androidx.health.connect.client.records.SleepSessionRecord
 import androidx.health.connect.client.records.StepsRecord
 import androidx.health.connect.client.records.WeightRecord
@@ -14,10 +17,14 @@ import androidx.health.connect.client.request.AggregateGroupByPeriodRequest
 import androidx.health.connect.client.request.AggregateRequest
 import androidx.health.connect.client.request.ReadRecordsRequest
 import androidx.health.connect.client.time.TimeRangeFilter
+import androidx.health.connect.client.units.Energy
+import androidx.health.connect.client.units.Mass
 import java.time.Instant
+import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.Period
 import java.time.ZoneId
+import java.time.ZoneOffset
 import java.time.temporal.ChronoUnit
 
 class HealthConnectManager(private val context: Context) {
@@ -31,7 +38,8 @@ class HealthConnectManager(private val context: Context) {
             HealthPermission.getReadPermission(BloodPressureRecord::class),
             HealthPermission.getReadPermission(HeartRateRecord::class),
             HealthPermission.getReadPermission(SleepSessionRecord::class),
-            HealthPermission.getReadPermission(StepsRecord::class)
+            HealthPermission.getReadPermission(StepsRecord::class),
+            HealthPermission.getWritePermission(NutritionRecord::class)
         )
 
         fun isHealthConnectAvailable(context: Context): Boolean {
@@ -441,5 +449,104 @@ class HealthConnectManager(private val context: Context) {
         } catch (e: Exception) {
             emptyList()
         }
+    }
+
+    /**
+     * Writes meal data from the API as NutritionRecords to Health Connect.
+     * Returns a pair of (written count, skipped count).
+     */
+    suspend fun writeNutritionRecords(meals: List<MealData>): Pair<Int, Int> {
+        var written = 0
+        var skipped = 0
+
+        val recordsToInsert = mutableListOf<NutritionRecord>()
+
+        for (meal in meals) {
+            val (startTime, endTime) = mealTimeRange(
+                LocalDate.parse(meal.date),
+                meal.mealType
+            )
+
+            val now = Instant.now()
+            if (startTime.isAfter(now)) {
+                Log.d("HealthSync", "Skipping meal id=${meal.id} (${meal.date} ${meal.mealType}): start time is in the future")
+                skipped++
+                continue
+            }
+
+            if (hasExistingNutritionRecord(startTime, endTime)) {
+                Log.d("HealthSync", "Skipping meal id=${meal.id} (${meal.date} ${meal.mealType}): already exists")
+                skipped++
+                continue
+            }
+
+            val jstOffset = ZoneOffset.ofHours(9)
+            val record = NutritionRecord(
+                startTime = startTime,
+                endTime = endTime,
+                startZoneOffset = jstOffset,
+                endZoneOffset = jstOffset,
+                metadata = androidx.health.connect.client.records.metadata.Metadata.manualEntry(),
+                name = meal.description,
+                mealType = meal.mealType.toHealthConnectMealType(),
+                energy = meal.caloriesKcal?.let { Energy.kilocalories(it) },
+                protein = meal.proteinG?.let { Mass.grams(it) },
+                totalFat = meal.fatG?.let { Mass.grams(it) },
+                totalCarbohydrate = meal.carbsG?.let { Mass.grams(it) },
+                dietaryFiber = meal.fiberG?.let { Mass.grams(it) },
+                sodium = meal.saltG?.let { Mass.grams(it * 0.3937) }
+            )
+            recordsToInsert.add(record)
+            written++
+        }
+
+        if (recordsToInsert.isNotEmpty()) {
+            try {
+                healthConnectClient.insertRecords(recordsToInsert)
+                Log.d("HealthSync", "Wrote $written nutrition records to Health Connect")
+            } catch (e: Exception) {
+                Log.e("HealthSync", "Failed to write nutrition records", e)
+                throw e
+            }
+        }
+
+        return written to skipped
+    }
+
+    private suspend fun hasExistingNutritionRecord(startTime: Instant, endTime: Instant): Boolean {
+        return try {
+            val response = healthConnectClient.readRecords(
+                ReadRecordsRequest(
+                    recordType = NutritionRecord::class,
+                    timeRangeFilter = TimeRangeFilter.between(startTime, endTime)
+                )
+            )
+            response.records.isNotEmpty()
+        } catch (e: Exception) {
+            Log.e("HealthSync", "Failed to check existing nutrition records", e)
+            false
+        }
+    }
+
+    private fun mealTimeRange(date: LocalDate, mealType: String): Pair<Instant, Instant> {
+        val (startHour, endHour) = when (mealType) {
+            "breakfast" -> 7 to 8
+            "lunch" -> 12 to 13
+            "dinner" -> 19 to 20
+            "snack" -> 15 to 16
+            else -> 12 to 13
+        }
+        val jstZone = ZoneId.of("Asia/Tokyo")
+        val start = date.atTime(startHour, 0).atZone(jstZone).toInstant()
+        val end = date.atTime(endHour, 0).atZone(jstZone).toInstant()
+        return start to end
+    }
+
+    private fun String.toHealthConnectMealType(): Int = when (this) {
+        "breakfast" -> MealType.MEAL_TYPE_BREAKFAST
+        "lunch" -> MealType.MEAL_TYPE_LUNCH
+        "dinner" -> MealType.MEAL_TYPE_DINNER
+        "snack" -> MealType.MEAL_TYPE_SNACK
+        else -> MealType.MEAL_TYPE_UNKNOWN
     }
 }

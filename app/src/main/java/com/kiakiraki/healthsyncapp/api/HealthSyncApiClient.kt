@@ -6,6 +6,8 @@ import com.kiakiraki.healthsyncapp.health.BodyFatRecord
 import com.kiakiraki.healthsyncapp.health.BodyMeasurementApi
 import com.kiakiraki.healthsyncapp.health.HealthSyncRequest
 import com.kiakiraki.healthsyncapp.health.HeartRateRecord
+import com.kiakiraki.healthsyncapp.health.MealData
+import com.kiakiraki.healthsyncapp.health.MealsResponse
 import com.kiakiraki.healthsyncapp.health.SleepRecord
 import com.kiakiraki.healthsyncapp.health.SleepSessionApi
 import com.kiakiraki.healthsyncapp.health.SleepStageApi
@@ -13,9 +15,12 @@ import com.kiakiraki.healthsyncapp.health.StepsApi
 import com.kiakiraki.healthsyncapp.health.StepsRecord
 import com.kiakiraki.healthsyncapp.health.WeightRecord
 import io.ktor.client.HttpClient
+import io.ktor.client.call.body
 import io.ktor.client.engine.android.Android
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
+import io.ktor.client.request.get
 import io.ktor.client.request.header
+import io.ktor.client.request.parameter
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.bodyAsText
@@ -51,6 +56,26 @@ class HealthSyncApiClient {
 
             if (response.status.isSuccess()) {
                 Result.success(Unit)
+            } else {
+                val errorBody = response.bodyAsText()
+                Result.failure(ApiException(response.status.value, errorBody))
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun fetchMeals(days: Int = 7): Result<List<MealData>> {
+        return try {
+            val baseUrl = API_URL.substringBeforeLast("/")
+            val response = client.get("$baseUrl/meals") {
+                header(HttpHeaders.Authorization, "Bearer ${BuildConfig.HEALTH_SYNC_API_KEY}")
+                parameter("days", days)
+            }
+
+            if (response.status.isSuccess()) {
+                val mealsResponse: MealsResponse = response.body()
+                Result.success(mealsResponse.meals)
             } else {
                 val errorBody = response.bodyAsText()
                 Result.failure(ApiException(response.status.value, errorBody))
