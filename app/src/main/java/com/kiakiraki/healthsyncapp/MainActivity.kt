@@ -216,10 +216,71 @@ fun HealthDataDisplay(
     onRefresh: () -> Unit,
     onSync: () -> Unit
 ) {
+    val context = LocalContext.current
+
+    // Show toast on sync state changes
+    LaunchedEffect(syncState) {
+        when (syncState) {
+            is SyncState.Success -> {
+                Toast.makeText(context, "Sync completed successfully!", Toast.LENGTH_SHORT).show()
+            }
+            is SyncState.Error -> {
+                Toast.makeText(context, "Sync failed: ${syncState.message}", Toast.LENGTH_LONG).show()
+            }
+            else -> {}
+        }
+    }
+
     Column(
         modifier = Modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
+        // Action buttons (top for easy access)
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Button(
+                onClick = onRefresh,
+                modifier = Modifier.weight(1f)
+            ) {
+                Text("Refresh Data")
+            }
+            Button(
+                onClick = onSync,
+                modifier = Modifier.weight(1f),
+                enabled = syncState !is SyncState.Syncing
+            ) {
+                when (syncState) {
+                    is SyncState.Syncing -> {
+                        CircularProgressIndicator(
+                            modifier = Modifier
+                                .padding(end = 8.dp)
+                                .height(20.dp)
+                                .width(20.dp),
+                            color = MaterialTheme.colorScheme.onPrimary,
+                            strokeWidth = 2.dp
+                        )
+                        Text("Syncing...")
+                    }
+                    else -> Text("Sync to Cloud")
+                }
+            }
+        }
+
+        // Copy error details button (only shown on error with details)
+        if (syncState is SyncState.Error && syncState.details != null) {
+            Button(
+                onClick = {
+                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                    clipboard.setPrimaryClip(ClipData.newPlainText("Sync Error", syncState.details))
+                    Toast.makeText(context, "Error details copied", Toast.LENGTH_SHORT).show()
+                }
+            ) {
+                Text("Copy Error Details")
+            }
+        }
+
         // Last Updated
         summary.lastUpdated?.let { lastUpdated ->
             val formatter = DateTimeFormatter.ofPattern("yyyy/MM/dd HH:mm")
@@ -296,72 +357,6 @@ fun HealthDataDisplay(
             }
         }
 
-        // Refresh Button
-        Spacer(modifier = Modifier.height(8.dp))
-        Button(
-            onClick = onRefresh,
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Text("Refresh Data")
-        }
-
-        // Sync to Cloud Button
-        Spacer(modifier = Modifier.height(8.dp))
-        Button(
-            onClick = onSync,
-            modifier = Modifier.fillMaxWidth(),
-            enabled = syncState !is SyncState.Syncing
-        ) {
-            when (syncState) {
-                is SyncState.Syncing -> {
-                    CircularProgressIndicator(
-                        modifier = Modifier
-                            .padding(end = 8.dp)
-                            .height(20.dp)
-                            .width(20.dp),
-                        color = MaterialTheme.colorScheme.onPrimary,
-                        strokeWidth = 2.dp
-                    )
-                    Text("Syncing...")
-                }
-                else -> Text("Sync to Cloud")
-            }
-        }
-
-        // Sync status feedback
-        when (syncState) {
-            is SyncState.Success -> {
-                Spacer(modifier = Modifier.height(8.dp))
-                Text(
-                    text = "Sync completed successfully!",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.primary
-                )
-            }
-            is SyncState.Error -> {
-                val context = LocalContext.current
-                Spacer(modifier = Modifier.height(8.dp))
-                Text(
-                    text = "Sync failed: ${syncState.message}",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.error,
-                    maxLines = 3
-                )
-                if (syncState.details != null) {
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Button(
-                        onClick = {
-                            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                            clipboard.setPrimaryClip(ClipData.newPlainText("Sync Error", syncState.details))
-                            Toast.makeText(context, "Error details copied", Toast.LENGTH_SHORT).show()
-                        }
-                    ) {
-                        Text("Copy Error Details")
-                    }
-                }
-            }
-            else -> {}
-        }
     }
 }
 
