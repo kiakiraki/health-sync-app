@@ -9,7 +9,7 @@ activityCompose = "1.12.4"
 kotlin = "2.3.20"
 composeBom = "2026.03.01"
 healthConnect = "1.2.0-alpha03"
-workManager = "2.11.1"
+workManager = "2.11.2"
 ktor = "3.4.2"
 kotlinxSerialization = "1.10.0"
 
