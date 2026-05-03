@@ -10,7 +10,7 @@ kotlin = "2.3.21"
 composeBom = "2026.04.01"
 healthConnect = "1.2.0-alpha04"
 workManager = "2.11.2"
-ktor = "3.4.2"
+ktor = "3.4.3"
 kotlinxSerialization = "1.11.0"
 
 [libraries]
