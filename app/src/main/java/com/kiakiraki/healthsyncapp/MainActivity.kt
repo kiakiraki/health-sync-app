@@ -4,7 +4,6 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.os.Bundle
-import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
@@ -27,6 +26,10 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarDuration
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
@@ -34,6 +37,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -89,7 +93,52 @@ fun HealthSyncScreen(viewModel: HealthSyncViewModel = viewModel()) {
         }
     }
 
+    val snackbarHostState = remember { SnackbarHostState() }
+    val context = LocalContext.current
+
+    LaunchedEffect(syncState) {
+        when (val result = syncState) {
+            is SyncState.Success -> {
+                snackbarHostState.showSnackbar("Sync completed successfully!")
+                viewModel.consumeSyncResult()
+            }
+            is SyncState.Error -> {
+                val action = snackbarHostState.showSnackbar(
+                    message = "Sync failed: ${result.message}",
+                    actionLabel = if (result.details != null) "Copy" else null,
+                    duration = SnackbarDuration.Long
+                )
+                if (action == SnackbarResult.ActionPerformed && result.details != null) {
+                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                    clipboard.setPrimaryClip(ClipData.newPlainText("Sync Error", result.details))
+                }
+                viewModel.consumeSyncResult()
+            }
+            else -> {}
+        }
+    }
+
+    LaunchedEffect(mealSyncState) {
+        when (val result = mealSyncState) {
+            is MealSyncState.Success -> {
+                snackbarHostState.showSnackbar(
+                    "Meal sync: ${result.written} written, ${result.skipped} skipped"
+                )
+                viewModel.consumeMealSyncResult()
+            }
+            is MealSyncState.Error -> {
+                snackbarHostState.showSnackbar(
+                    message = "Meal sync failed: ${result.message}",
+                    duration = SnackbarDuration.Long
+                )
+                viewModel.consumeMealSyncResult()
+            }
+            else -> {}
+        }
+    }
+
     Scaffold(
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
                 title = { Text("Health Sync") },
@@ -188,38 +237,6 @@ fun HealthDataDisplay(
     onSync: () -> Unit,
     onMealSync: () -> Unit
 ) {
-    val context = LocalContext.current
-
-    // Show toast on sync state changes
-    LaunchedEffect(syncState) {
-        when (syncState) {
-            is SyncState.Success -> {
-                Toast.makeText(context, "Sync completed successfully!", Toast.LENGTH_SHORT).show()
-            }
-            is SyncState.Error -> {
-                Toast.makeText(context, "Sync failed: ${syncState.message}", Toast.LENGTH_LONG).show()
-            }
-            else -> {}
-        }
-    }
-
-    // Show toast on meal sync state changes
-    LaunchedEffect(mealSyncState) {
-        when (mealSyncState) {
-            is MealSyncState.Success -> {
-                Toast.makeText(
-                    context,
-                    "Meal sync: ${mealSyncState.written} written, ${mealSyncState.skipped} skipped",
-                    Toast.LENGTH_SHORT
-                ).show()
-            }
-            is MealSyncState.Error -> {
-                Toast.makeText(context, "Meal sync failed: ${mealSyncState.message}", Toast.LENGTH_LONG).show()
-            }
-            else -> {}
-        }
-    }
-
     Column(
         modifier = Modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(16.dp)
@@ -276,19 +293,6 @@ fun HealthDataDisplay(
                     Text("Syncing Meals...")
                 }
                 else -> Text("Sync Meals to Health Connect")
-            }
-        }
-
-        // Copy error details button (only shown on error with details)
-        if (syncState is SyncState.Error && syncState.details != null) {
-            Button(
-                onClick = {
-                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                    clipboard.setPrimaryClip(ClipData.newPlainText("Sync Error", syncState.details))
-                    Toast.makeText(context, "Error details copied", Toast.LENGTH_SHORT).show()
-                }
-            ) {
-                Text("Copy Error Details")
             }
         }
 
