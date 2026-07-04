@@ -11,6 +11,8 @@ import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import com.kiakiraki.healthsyncapp.api.HealthSyncApiClient
 import com.kiakiraki.healthsyncapp.health.HealthConnectManager
+import com.kiakiraki.healthsyncapp.health.SyncStatusStore
+import java.time.Instant
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.CancellationException
 
@@ -52,10 +54,13 @@ class HealthSyncWorker(
                 sleepRecords = healthConnectManager.readSleepRecords(7),
                 stepsRecords = healthConnectManager.readStepsRecords(7)
             )
+            val syncStatusStore = SyncStatusStore(applicationContext)
             apiClient.syncHealthData(request).getOrThrow()
+            syncStatusStore.lastCloudSyncAt = Instant.now()
 
             val meals = apiClient.fetchMeals(days = 7).getOrThrow()
             val (written, skipped) = healthConnectManager.writeNutritionRecords(meals)
+            syncStatusStore.lastMealSyncAt = Instant.now()
 
             Log.d(TAG, "Background sync complete: health data uploaded, meals $written written / $skipped skipped")
             Result.success()
