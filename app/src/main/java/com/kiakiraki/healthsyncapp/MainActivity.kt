@@ -33,6 +33,7 @@ import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -149,15 +150,27 @@ fun HealthSyncScreen(viewModel: HealthSyncViewModel = viewModel()) {
             )
         }
     ) { innerPadding ->
-        Column(
+        PullToRefreshBox(
+            isRefreshing = state is HealthConnectState.Loading,
+            onRefresh = {
+                // Only meaningful once data can be loaded; in the
+                // NotSupported/PermissionsRequired states the gesture is a no-op.
+                if (state is HealthConnectState.Success || state is HealthConnectState.Error) {
+                    viewModel.refresh()
+                }
+            },
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
-                .padding(16.dp)
-                .verticalScroll(rememberScrollState()),
-            horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            when (val currentState = state) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(16.dp)
+                    .verticalScroll(rememberScrollState()),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                when (val currentState = state) {
                 is HealthConnectState.Loading -> {
                     Spacer(modifier = Modifier.height(32.dp))
                     CircularProgressIndicator()
@@ -220,6 +233,7 @@ fun HealthSyncScreen(viewModel: HealthSyncViewModel = viewModel()) {
                     ) {
                         Text("Retry")
                     }
+                }
                 }
             }
         }
@@ -320,7 +334,7 @@ fun HealthDataDisplay(
                     )
                 }
             } else {
-                Text("No data available", style = MaterialTheme.typography.bodyMedium)
+                NoDataText("Weight recorded to Health Connect by a smart scale app will appear here.")
             }
         }
 
@@ -335,7 +349,7 @@ fun HealthDataDisplay(
                     )
                 }
             } else {
-                Text("No data available", style = MaterialTheme.typography.bodyMedium)
+                NoDataText("Body fat recorded to Health Connect by a smart scale app will appear here.")
             }
         }
 
@@ -347,7 +361,7 @@ fun HealthDataDisplay(
                     value = "${summary.latestSystolicMmHg.toInt()}/${summary.latestDiastolicMmHg.toInt()} mmHg"
                 )
             } else {
-                Text("No data available", style = MaterialTheme.typography.bodyMedium)
+                NoDataText("Readings from a blood pressure monitor app will appear here.")
             }
         }
 
@@ -356,7 +370,7 @@ fun HealthDataDisplay(
             if (summary.latestHeartRateBpm != null) {
                 HealthDataRow(label = "Latest", value = "${summary.latestHeartRateBpm} bpm")
             } else {
-                Text("No data available", style = MaterialTheme.typography.bodyMedium)
+                NoDataText("Heart rate measured by a smartwatch or fitness tracker will appear here.")
             }
         }
 
@@ -367,7 +381,7 @@ fun HealthDataDisplay(
                 val avgPerDay = summary.totalStepsLast7Days / 7
                 HealthDataRow(label = "Daily avg", value = "$avgPerDay steps")
             } else {
-                Text("No data available", style = MaterialTheme.typography.bodyMedium)
+                NoDataText("Steps counted by your phone or smartwatch will appear here.")
             }
         }
 
@@ -382,7 +396,7 @@ fun HealthDataDisplay(
                 val avgMinutes = avgMinutesPerDay % 60
                 HealthDataRow(label = "Daily avg", value = "${avgHours}h ${avgMinutes}m")
             } else {
-                Text("No data available", style = MaterialTheme.typography.bodyMedium)
+                NoDataText("Sleep tracked by a smartwatch or sleep app will appear here.")
             }
         }
 
@@ -397,6 +411,17 @@ private fun formatDelta(delta: Double, unit: String): String {
         else -> "± "
     }
     return String.format("%s%.1f %s", arrow, kotlin.math.abs(delta), unit)
+}
+
+@Composable
+private fun NoDataText(hint: String) {
+    Text("No data available", style = MaterialTheme.typography.bodyMedium)
+    Spacer(modifier = Modifier.height(4.dp))
+    Text(
+        text = hint,
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant
+    )
 }
 
 @Composable
