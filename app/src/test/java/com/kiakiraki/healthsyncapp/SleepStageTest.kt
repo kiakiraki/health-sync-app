@@ -2,8 +2,8 @@ package com.kiakiraki.healthsyncapp
 
 import com.kiakiraki.healthsyncapp.api.HealthSyncApiClient
 import com.kiakiraki.healthsyncapp.health.HealthConnectManager
-import com.kiakiraki.healthsyncapp.health.SleepRecord
-import com.kiakiraki.healthsyncapp.health.SleepStageRecord
+import com.kiakiraki.healthsyncapp.health.SleepData
+import com.kiakiraki.healthsyncapp.health.SleepStageData
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -30,12 +30,12 @@ class SleepStageTest {
         )
 
         for ((healthConnectType, expectedApiString) in stageTypes) {
-            val sleepRecord = SleepRecord(
+            val sleepRecord = SleepData(
                 durationMinutes = 60,
                 startTime = instant("2026-02-24T23:00:00Z"),
                 endTime = instant("2026-02-25T00:00:00Z"),
                 stages = listOf(
-                    SleepStageRecord(
+                    SleepStageData(
                         stage = healthConnectType,
                         startTime = instant("2026-02-24T23:00:00Z"),
                         endTime = instant("2026-02-25T00:00:00Z")
@@ -62,12 +62,12 @@ class SleepStageTest {
 
     @Test
     fun `buildSyncRequest maps unknown stage type to unknown`() {
-        val sleepRecord = SleepRecord(
+        val sleepRecord = SleepData(
             durationMinutes = 60,
             startTime = instant("2026-02-24T23:00:00Z"),
             endTime = instant("2026-02-25T00:00:00Z"),
             stages = listOf(
-                SleepStageRecord(
+                SleepStageData(
                     stage = 99,
                     startTime = instant("2026-02-24T23:00:00Z"),
                     endTime = instant("2026-02-25T00:00:00Z")
@@ -91,14 +91,14 @@ class SleepStageTest {
 
     @Test
     fun `buildSyncRequest includes stages with ISO 8601 timestamps`() {
-        val sleepRecord = SleepRecord(
+        val sleepRecord = SleepData(
             durationMinutes = 480,
             startTime = instant("2026-02-24T23:00:00Z"),
             endTime = instant("2026-02-25T07:00:00Z"),
             stages = listOf(
-                SleepStageRecord(stage = 4, startTime = instant("2026-02-24T23:00:00Z"), endTime = instant("2026-02-24T23:45:00Z")),
-                SleepStageRecord(stage = 5, startTime = instant("2026-02-24T23:45:00Z"), endTime = instant("2026-02-25T01:00:00Z")),
-                SleepStageRecord(stage = 6, startTime = instant("2026-02-25T01:00:00Z"), endTime = instant("2026-02-25T02:30:00Z")),
+                SleepStageData(stage = 4, startTime = instant("2026-02-24T23:00:00Z"), endTime = instant("2026-02-24T23:45:00Z")),
+                SleepStageData(stage = 5, startTime = instant("2026-02-24T23:45:00Z"), endTime = instant("2026-02-25T01:00:00Z")),
+                SleepStageData(stage = 6, startTime = instant("2026-02-25T01:00:00Z"), endTime = instant("2026-02-25T02:30:00Z")),
             )
         )
 
@@ -125,7 +125,7 @@ class SleepStageTest {
 
     @Test
     fun `buildSyncRequest produces empty stages list when sleep has no stages`() {
-        val sleepRecord = SleepRecord(
+        val sleepRecord = SleepData(
             durationMinutes = 480,
             startTime = instant("2026-02-24T23:00:00Z"),
             endTime = instant("2026-02-25T07:00:00Z")
@@ -147,22 +147,22 @@ class SleepStageTest {
 
     @Test
     fun `merge combines stages from overlapping sessions sorted by start time`() {
-        val session1 = SleepRecord(
+        val session1 = SleepData(
             durationMinutes = 120,
             startTime = instant("2026-02-24T23:00:00Z"),
             endTime = instant("2026-02-25T01:00:00Z"),
             stages = listOf(
-                SleepStageRecord(stage = 4, startTime = instant("2026-02-24T23:00:00Z"), endTime = instant("2026-02-24T23:30:00Z")),
-                SleepStageRecord(stage = 5, startTime = instant("2026-02-24T23:30:00Z"), endTime = instant("2026-02-25T01:00:00Z")),
+                SleepStageData(stage = 4, startTime = instant("2026-02-24T23:00:00Z"), endTime = instant("2026-02-24T23:30:00Z")),
+                SleepStageData(stage = 5, startTime = instant("2026-02-24T23:30:00Z"), endTime = instant("2026-02-25T01:00:00Z")),
             )
         )
-        val session2 = SleepRecord(
+        val session2 = SleepData(
             durationMinutes = 120,
             startTime = instant("2026-02-25T00:00:00Z"),
             endTime = instant("2026-02-25T02:00:00Z"),
             stages = listOf(
-                SleepStageRecord(stage = 6, startTime = instant("2026-02-25T00:00:00Z"), endTime = instant("2026-02-25T01:30:00Z")),
-                SleepStageRecord(stage = 4, startTime = instant("2026-02-25T01:30:00Z"), endTime = instant("2026-02-25T02:00:00Z")),
+                SleepStageData(stage = 6, startTime = instant("2026-02-25T00:00:00Z"), endTime = instant("2026-02-25T01:30:00Z")),
+                SleepStageData(stage = 4, startTime = instant("2026-02-25T01:30:00Z"), endTime = instant("2026-02-25T02:00:00Z")),
             )
         )
 
@@ -180,15 +180,15 @@ class SleepStageTest {
 
     @Test
     fun `merge keeps stages when one session has stages and the other does not`() {
-        val sessionWithStages = SleepRecord(
+        val sessionWithStages = SleepData(
             durationMinutes = 120,
             startTime = instant("2026-02-24T23:00:00Z"),
             endTime = instant("2026-02-25T01:00:00Z"),
             stages = listOf(
-                SleepStageRecord(stage = 4, startTime = instant("2026-02-24T23:00:00Z"), endTime = instant("2026-02-25T01:00:00Z")),
+                SleepStageData(stage = 4, startTime = instant("2026-02-24T23:00:00Z"), endTime = instant("2026-02-25T01:00:00Z")),
             )
         )
-        val sessionWithoutStages = SleepRecord(
+        val sessionWithoutStages = SleepData(
             durationMinutes = 60,
             startTime = instant("2026-02-25T00:00:00Z"),
             endTime = instant("2026-02-25T01:00:00Z")
@@ -203,20 +203,20 @@ class SleepStageTest {
 
     @Test
     fun `merge does not combine non-overlapping sessions`() {
-        val session1 = SleepRecord(
+        val session1 = SleepData(
             durationMinutes = 120,
             startTime = instant("2026-02-24T22:00:00Z"),
             endTime = instant("2026-02-25T00:00:00Z"),
             stages = listOf(
-                SleepStageRecord(stage = 5, startTime = instant("2026-02-24T22:00:00Z"), endTime = instant("2026-02-25T00:00:00Z")),
+                SleepStageData(stage = 5, startTime = instant("2026-02-24T22:00:00Z"), endTime = instant("2026-02-25T00:00:00Z")),
             )
         )
-        val session2 = SleepRecord(
+        val session2 = SleepData(
             durationMinutes = 60,
             startTime = instant("2026-02-25T01:00:00Z"),
             endTime = instant("2026-02-25T02:00:00Z"),
             stages = listOf(
-                SleepStageRecord(stage = 4, startTime = instant("2026-02-25T01:00:00Z"), endTime = instant("2026-02-25T02:00:00Z")),
+                SleepStageData(stage = 4, startTime = instant("2026-02-25T01:00:00Z"), endTime = instant("2026-02-25T02:00:00Z")),
             )
         )
 
@@ -238,24 +238,24 @@ class SleepStageTest {
     @Test
     fun `merge prefers detailed stages and trims non-detailed for overlapping interval`() {
         // Nest Hub: single "sleeping" stage for the whole session
-        val nestHub = SleepRecord(
+        val nestHub = SleepData(
             durationMinutes = 480,
             startTime = instant("2026-02-24T23:00:00Z"),
             endTime = instant("2026-02-25T07:00:00Z"),
             stages = listOf(
-                SleepStageRecord(stage = 2, startTime = instant("2026-02-24T23:00:00Z"), endTime = instant("2026-02-25T07:00:00Z")),
+                SleepStageData(stage = 2, startTime = instant("2026-02-24T23:00:00Z"), endTime = instant("2026-02-25T07:00:00Z")),
             )
         )
         // Pixel Watch: detailed stages for a sub-interval
-        val pixelWatch = SleepRecord(
+        val pixelWatch = SleepData(
             durationMinutes = 420,
             startTime = instant("2026-02-24T23:30:00Z"),
             endTime = instant("2026-02-25T06:30:00Z"),
             stages = listOf(
-                SleepStageRecord(stage = 4, startTime = instant("2026-02-24T23:30:00Z"), endTime = instant("2026-02-25T01:00:00Z")),
-                SleepStageRecord(stage = 5, startTime = instant("2026-02-25T01:00:00Z"), endTime = instant("2026-02-25T03:00:00Z")),
-                SleepStageRecord(stage = 6, startTime = instant("2026-02-25T03:00:00Z"), endTime = instant("2026-02-25T05:00:00Z")),
-                SleepStageRecord(stage = 4, startTime = instant("2026-02-25T05:00:00Z"), endTime = instant("2026-02-25T06:30:00Z")),
+                SleepStageData(stage = 4, startTime = instant("2026-02-24T23:30:00Z"), endTime = instant("2026-02-25T01:00:00Z")),
+                SleepStageData(stage = 5, startTime = instant("2026-02-25T01:00:00Z"), endTime = instant("2026-02-25T03:00:00Z")),
+                SleepStageData(stage = 6, startTime = instant("2026-02-25T03:00:00Z"), endTime = instant("2026-02-25T05:00:00Z")),
+                SleepStageData(stage = 4, startTime = instant("2026-02-25T05:00:00Z"), endTime = instant("2026-02-25T06:30:00Z")),
             )
         )
 
@@ -289,22 +289,22 @@ class SleepStageTest {
 
     @Test
     fun `merge fully replaces non-detailed stages when detailed covers entire interval`() {
-        val nestHub = SleepRecord(
+        val nestHub = SleepData(
             durationMinutes = 420,
             startTime = instant("2026-02-24T23:30:00Z"),
             endTime = instant("2026-02-25T06:30:00Z"),
             stages = listOf(
-                SleepStageRecord(stage = 2, startTime = instant("2026-02-24T23:30:00Z"), endTime = instant("2026-02-25T06:30:00Z")),
+                SleepStageData(stage = 2, startTime = instant("2026-02-24T23:30:00Z"), endTime = instant("2026-02-25T06:30:00Z")),
             )
         )
-        val pixelWatch = SleepRecord(
+        val pixelWatch = SleepData(
             durationMinutes = 480,
             startTime = instant("2026-02-24T23:00:00Z"),
             endTime = instant("2026-02-25T07:00:00Z"),
             stages = listOf(
-                SleepStageRecord(stage = 4, startTime = instant("2026-02-24T23:00:00Z"), endTime = instant("2026-02-25T02:00:00Z")),
-                SleepStageRecord(stage = 5, startTime = instant("2026-02-25T02:00:00Z"), endTime = instant("2026-02-25T05:00:00Z")),
-                SleepStageRecord(stage = 6, startTime = instant("2026-02-25T05:00:00Z"), endTime = instant("2026-02-25T07:00:00Z")),
+                SleepStageData(stage = 4, startTime = instant("2026-02-24T23:00:00Z"), endTime = instant("2026-02-25T02:00:00Z")),
+                SleepStageData(stage = 5, startTime = instant("2026-02-25T02:00:00Z"), endTime = instant("2026-02-25T05:00:00Z")),
+                SleepStageData(stage = 6, startTime = instant("2026-02-25T05:00:00Z"), endTime = instant("2026-02-25T07:00:00Z")),
             )
         )
 
@@ -320,20 +320,20 @@ class SleepStageTest {
 
     @Test
     fun `merge combines all stages when both sessions have detailed stages`() {
-        val watch1 = SleepRecord(
+        val watch1 = SleepData(
             durationMinutes = 120,
             startTime = instant("2026-02-24T23:00:00Z"),
             endTime = instant("2026-02-25T01:00:00Z"),
             stages = listOf(
-                SleepStageRecord(stage = 4, startTime = instant("2026-02-24T23:00:00Z"), endTime = instant("2026-02-25T01:00:00Z")),
+                SleepStageData(stage = 4, startTime = instant("2026-02-24T23:00:00Z"), endTime = instant("2026-02-25T01:00:00Z")),
             )
         )
-        val watch2 = SleepRecord(
+        val watch2 = SleepData(
             durationMinutes = 120,
             startTime = instant("2026-02-25T00:00:00Z"),
             endTime = instant("2026-02-25T02:00:00Z"),
             stages = listOf(
-                SleepStageRecord(stage = 5, startTime = instant("2026-02-25T00:00:00Z"), endTime = instant("2026-02-25T02:00:00Z")),
+                SleepStageData(stage = 5, startTime = instant("2026-02-25T00:00:00Z"), endTime = instant("2026-02-25T02:00:00Z")),
             )
         )
 
@@ -349,20 +349,20 @@ class SleepStageTest {
     @Test
     fun `hasDetailedStages returns true for light deep or rem stages`() {
         assertTrue(HealthConnectManager.hasDetailedStages(listOf(
-            SleepStageRecord(stage = 4, startTime = Instant.EPOCH, endTime = Instant.EPOCH.plusSeconds(3600))
+            SleepStageData(stage = 4, startTime = Instant.EPOCH, endTime = Instant.EPOCH.plusSeconds(3600))
         )))
         assertTrue(HealthConnectManager.hasDetailedStages(listOf(
-            SleepStageRecord(stage = 5, startTime = Instant.EPOCH, endTime = Instant.EPOCH.plusSeconds(3600))
+            SleepStageData(stage = 5, startTime = Instant.EPOCH, endTime = Instant.EPOCH.plusSeconds(3600))
         )))
         assertTrue(HealthConnectManager.hasDetailedStages(listOf(
-            SleepStageRecord(stage = 6, startTime = Instant.EPOCH, endTime = Instant.EPOCH.plusSeconds(3600))
+            SleepStageData(stage = 6, startTime = Instant.EPOCH, endTime = Instant.EPOCH.plusSeconds(3600))
         )))
     }
 
     @Test
     fun `hasDetailedStages returns false for non-detailed stages`() {
         assertFalse(HealthConnectManager.hasDetailedStages(listOf(
-            SleepStageRecord(stage = 2, startTime = Instant.EPOCH, endTime = Instant.EPOCH.plusSeconds(3600))
+            SleepStageData(stage = 2, startTime = Instant.EPOCH, endTime = Instant.EPOCH.plusSeconds(3600))
         )))
         assertFalse(HealthConnectManager.hasDetailedStages(emptyList()))
     }
@@ -371,13 +371,13 @@ class SleepStageTest {
 
     @Test
     fun `trimStageByIntervals splits stage around covered intervals`() {
-        val stage = SleepStageRecord(
+        val stage = SleepStageData(
             stage = 2,
             startTime = instant("2026-02-24T23:00:00Z"),
             endTime = instant("2026-02-25T07:00:00Z")
         )
         val covered = listOf(
-            SleepStageRecord(stage = 4, startTime = instant("2026-02-24T23:30:00Z"), endTime = instant("2026-02-25T06:30:00Z"))
+            SleepStageData(stage = 4, startTime = instant("2026-02-24T23:30:00Z"), endTime = instant("2026-02-25T06:30:00Z"))
         )
 
         val trimmed = HealthConnectManager.trimStageByIntervals(stage, covered)
@@ -393,13 +393,13 @@ class SleepStageTest {
 
     @Test
     fun `trimStageByIntervals removes stage completely covered`() {
-        val stage = SleepStageRecord(
+        val stage = SleepStageData(
             stage = 2,
             startTime = instant("2026-02-25T00:00:00Z"),
             endTime = instant("2026-02-25T06:00:00Z")
         )
         val covered = listOf(
-            SleepStageRecord(stage = 4, startTime = instant("2026-02-24T23:00:00Z"), endTime = instant("2026-02-25T07:00:00Z"))
+            SleepStageData(stage = 4, startTime = instant("2026-02-24T23:00:00Z"), endTime = instant("2026-02-25T07:00:00Z"))
         )
 
         val trimmed = HealthConnectManager.trimStageByIntervals(stage, covered)
@@ -409,13 +409,13 @@ class SleepStageTest {
 
     @Test
     fun `trimStageByIntervals returns stage unchanged when no overlap`() {
-        val stage = SleepStageRecord(
+        val stage = SleepStageData(
             stage = 2,
             startTime = instant("2026-02-24T20:00:00Z"),
             endTime = instant("2026-02-24T22:00:00Z")
         )
         val covered = listOf(
-            SleepStageRecord(stage = 4, startTime = instant("2026-02-24T23:00:00Z"), endTime = instant("2026-02-25T07:00:00Z"))
+            SleepStageData(stage = 4, startTime = instant("2026-02-24T23:00:00Z"), endTime = instant("2026-02-25T07:00:00Z"))
         )
 
         val trimmed = HealthConnectManager.trimStageByIntervals(stage, covered)
@@ -427,14 +427,14 @@ class SleepStageTest {
 
     @Test
     fun `trimStageByIntervals splits stage into three fragments with two covered intervals`() {
-        val stage = SleepStageRecord(
+        val stage = SleepStageData(
             stage = 2,
             startTime = instant("2026-02-24T22:00:00Z"),
             endTime = instant("2026-02-25T08:00:00Z")
         )
         val covered = listOf(
-            SleepStageRecord(stage = 4, startTime = instant("2026-02-24T23:00:00Z"), endTime = instant("2026-02-25T01:00:00Z")),
-            SleepStageRecord(stage = 5, startTime = instant("2026-02-25T03:00:00Z"), endTime = instant("2026-02-25T06:00:00Z")),
+            SleepStageData(stage = 4, startTime = instant("2026-02-24T23:00:00Z"), endTime = instant("2026-02-25T01:00:00Z")),
+            SleepStageData(stage = 5, startTime = instant("2026-02-25T03:00:00Z"), endTime = instant("2026-02-25T06:00:00Z")),
         )
 
         val trimmed = HealthConnectManager.trimStageByIntervals(stage, covered)

@@ -2,18 +2,19 @@ package com.kiakiraki.healthsyncapp.api
 
 import com.kiakiraki.healthsyncapp.BuildConfig
 import com.kiakiraki.healthsyncapp.health.BloodPressureApi
-import com.kiakiraki.healthsyncapp.health.BodyFatRecord
+import com.kiakiraki.healthsyncapp.health.BloodPressureData
+import com.kiakiraki.healthsyncapp.health.BodyFatData
 import com.kiakiraki.healthsyncapp.health.BodyMeasurementApi
 import com.kiakiraki.healthsyncapp.health.HealthSyncRequest
-import com.kiakiraki.healthsyncapp.health.HeartRateRecord
+import com.kiakiraki.healthsyncapp.health.HeartRateData
 import com.kiakiraki.healthsyncapp.health.MealData
 import com.kiakiraki.healthsyncapp.health.MealsResponse
-import com.kiakiraki.healthsyncapp.health.SleepRecord
+import com.kiakiraki.healthsyncapp.health.SleepData
 import com.kiakiraki.healthsyncapp.health.SleepSessionApi
 import com.kiakiraki.healthsyncapp.health.SleepStageApi
 import com.kiakiraki.healthsyncapp.health.StepsApi
-import com.kiakiraki.healthsyncapp.health.StepsRecord
-import com.kiakiraki.healthsyncapp.health.WeightRecord
+import com.kiakiraki.healthsyncapp.health.StepsData
+import com.kiakiraki.healthsyncapp.health.WeightData
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.engine.android.Android
@@ -57,7 +58,7 @@ class HealthSyncApiClient {
 
     suspend fun syncHealthData(request: HealthSyncRequest): Result<Unit> {
         return try {
-            val response = client.post(API_URL) {
+            val response = client.post(SYNC_URL) {
                 contentType(ContentType.Application.Json)
                 header(HttpHeaders.Authorization, "Bearer ${BuildConfig.HEALTH_SYNC_API_KEY}")
                 setBody(request)
@@ -78,8 +79,7 @@ class HealthSyncApiClient {
 
     suspend fun fetchMeals(days: Int = 7): Result<List<MealData>> {
         return try {
-            val baseUrl = API_URL.substringBeforeLast("/")
-            val response = client.get("$baseUrl/meals") {
+            val response = client.get(MEALS_URL) {
                 header(HttpHeaders.Authorization, "Bearer ${BuildConfig.HEALTH_SYNC_API_KEY}")
                 parameter("days", days)
             }
@@ -103,19 +103,25 @@ class HealthSyncApiClient {
     }
 
     companion object {
-        private val API_URL = BuildConfig.HEALTH_SYNC_API_URL
+        /**
+         * HEALTH_SYNC_API_URL in local.properties points at the sync
+         * endpoint (".../sync"); sibling endpoints are derived from its
+         * parent path.
+         */
+        private val SYNC_URL = BuildConfig.HEALTH_SYNC_API_URL.trimEnd('/')
+        private val MEALS_URL = SYNC_URL.substringBeforeLast('/') + "/meals"
 
         private val isoFormatter = DateTimeFormatter.ISO_INSTANT
 
         private val dateFormatter = DateTimeFormatter.ISO_LOCAL_DATE
 
         fun buildSyncRequest(
-            weightRecords: List<WeightRecord>,
-            bodyFatRecords: List<BodyFatRecord>,
-            bloodPressureRecords: List<com.kiakiraki.healthsyncapp.health.BloodPressureRecord>,
-            heartRateRecords: List<HeartRateRecord>,
-            sleepRecords: List<SleepRecord>,
-            stepsRecords: List<StepsRecord>
+            weightRecords: List<WeightData>,
+            bodyFatRecords: List<BodyFatData>,
+            bloodPressureRecords: List<BloodPressureData>,
+            heartRateRecords: List<HeartRateData>,
+            sleepRecords: List<SleepData>,
+            stepsRecords: List<StepsData>
         ): HealthSyncRequest {
             val bodyMeasurements = buildBodyMeasurements(weightRecords, bodyFatRecords)
             val bloodPressure = buildBloodPressure(bloodPressureRecords, heartRateRecords)
@@ -131,8 +137,8 @@ class HealthSyncApiClient {
         }
 
         private fun buildBodyMeasurements(
-            weightRecords: List<WeightRecord>,
-            bodyFatRecords: List<BodyFatRecord>
+            weightRecords: List<WeightData>,
+            bodyFatRecords: List<BodyFatData>
         ): List<BodyMeasurementApi> {
             val weightByTime = weightRecords.associateBy { it.time.truncatedTo(java.time.temporal.ChronoUnit.MINUTES) }
             val bodyFatByTime = bodyFatRecords.associateBy { it.time.truncatedTo(java.time.temporal.ChronoUnit.MINUTES) }
@@ -149,8 +155,8 @@ class HealthSyncApiClient {
         }
 
         private fun buildBloodPressure(
-            bloodPressureRecords: List<com.kiakiraki.healthsyncapp.health.BloodPressureRecord>,
-            heartRateRecords: List<HeartRateRecord>
+            bloodPressureRecords: List<BloodPressureData>,
+            heartRateRecords: List<HeartRateData>
         ): List<BloodPressureApi> {
             val heartRateByTime = heartRateRecords.associateBy {
                 it.time.truncatedTo(java.time.temporal.ChronoUnit.MINUTES)
@@ -169,7 +175,7 @@ class HealthSyncApiClient {
             }
         }
 
-        private fun buildSleepSessions(sleepRecords: List<SleepRecord>): List<SleepSessionApi> {
+        private fun buildSleepSessions(sleepRecords: List<SleepData>): List<SleepSessionApi> {
             return sleepRecords.map { sleep ->
                 SleepSessionApi(
                     startTime = formatInstantToIso(sleep.startTime),
@@ -197,7 +203,7 @@ class HealthSyncApiClient {
             else -> "unknown"
         }
 
-        private fun buildSteps(stepsRecords: List<StepsRecord>): List<StepsApi> {
+        private fun buildSteps(stepsRecords: List<StepsData>): List<StepsApi> {
             return stepsRecords.map { record ->
                 val date = LocalDate.ofInstant(record.startTime, ZoneId.systemDefault())
                 StepsApi(

@@ -33,14 +33,14 @@ sealed class SyncState {
 }
 
 @Serializable
-data class WeightRecord(
+data class WeightData(
     val weightKg: Double,
     @Serializable(with = InstantSerializer::class)
     val time: Instant
 )
 
 @Serializable
-data class BloodPressureRecord(
+data class BloodPressureData(
     val systolicMmHg: Double,
     val diastolicMmHg: Double,
     @Serializable(with = InstantSerializer::class)
@@ -48,7 +48,7 @@ data class BloodPressureRecord(
 )
 
 @Serializable
-data class SleepStageRecord(
+data class SleepStageData(
     val stage: Int,
     @Serializable(with = InstantSerializer::class)
     val startTime: Instant,
@@ -57,17 +57,17 @@ data class SleepStageRecord(
 )
 
 @Serializable
-data class SleepRecord(
+data class SleepData(
     val durationMinutes: Long,
     @Serializable(with = InstantSerializer::class)
     val startTime: Instant,
     @Serializable(with = InstantSerializer::class)
     val endTime: Instant,
-    val stages: List<SleepStageRecord> = emptyList()
+    val stages: List<SleepStageData> = emptyList()
 )
 
 @Serializable
-data class StepsRecord(
+data class StepsData(
     val count: Long,
     @Serializable(with = InstantSerializer::class)
     val startTime: Instant,
@@ -76,14 +76,14 @@ data class StepsRecord(
 )
 
 @Serializable
-data class BodyFatRecord(
+data class BodyFatData(
     val percentage: Double,
     @Serializable(with = InstantSerializer::class)
     val time: Instant
 )
 
 @Serializable
-data class HeartRateRecord(
+data class HeartRateData(
     val beatsPerMinute: Long,
     @Serializable(with = InstantSerializer::class)
     val time: Instant
