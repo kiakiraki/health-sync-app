@@ -13,6 +13,8 @@ import androidx.health.connect.client.records.NutritionRecord
 import androidx.health.connect.client.records.SleepSessionRecord
 import androidx.health.connect.client.records.StepsRecord
 import androidx.health.connect.client.records.WeightRecord
+import androidx.health.connect.client.records.metadata.DataOrigin
+import androidx.health.connect.client.records.metadata.Metadata
 import androidx.health.connect.client.request.AggregateGroupByPeriodRequest
 import androidx.health.connect.client.request.AggregateRequest
 import androidx.health.connect.client.request.ReadRecordsRequest
@@ -453,12 +455,13 @@ class HealthConnectManager(private val context: Context) {
 
     /**
      * Writes meal data from the API as NutritionRecords to Health Connect.
+     * Uses clientRecordId ("meal-<id>") so repeated syncs upsert instead of
+     * creating duplicates.
      * Returns a pair of (written count, skipped count).
      */
     suspend fun writeNutritionRecords(meals: List<MealData>): Pair<Int, Int> {
-        var written = 0
         var skipped = 0
-
+        val now = Instant.now()
         val recordsToInsert = mutableListOf<NutritionRecord>()
 
         for (meal in meals) {
@@ -467,15 +470,8 @@ class HealthConnectManager(private val context: Context) {
                 meal.mealType
             )
 
-            val now = Instant.now()
             if (startTime.isAfter(now)) {
                 Log.d("HealthSync", "Skipping meal id=${meal.id} (${meal.date} ${meal.mealType}): start time is in the future")
-                skipped++
-                continue
-            }
-
-            if (hasExistingNutritionRecord(startTime, endTime)) {
-                Log.d("HealthSync", "Skipping meal id=${meal.id} (${meal.date} ${meal.mealType}): already exists")
                 skipped++
                 continue
             }
@@ -486,7 +482,7 @@ class HealthConnectManager(private val context: Context) {
                 endTime = endTime,
                 startZoneOffset = jstOffset,
                 endZoneOffset = jstOffset,
-                metadata = androidx.health.connect.client.records.metadata.Metadata.manualEntry(),
+                metadata = Metadata.manualEntry(clientRecordId = "meal-${meal.id}"),
                 name = meal.description,
                 mealType = meal.mealType.toHealthConnectMealType(),
                 energy = meal.caloriesKcal?.let { Energy.kilocalories(it) },
@@ -497,34 +493,55 @@ class HealthConnectManager(private val context: Context) {
                 sodium = meal.saltG?.let { Mass.grams(it * 0.3937) }
             )
             recordsToInsert.add(record)
-            written++
         }
 
         if (recordsToInsert.isNotEmpty()) {
-            try {
-                healthConnectClient.insertRecords(recordsToInsert)
-                Log.d("HealthSync", "Wrote $written nutrition records to Health Connect")
-            } catch (e: Exception) {
-                Log.e("HealthSync", "Failed to write nutrition records", e)
-                throw e
-            }
+            deleteLegacyNutritionRecords(
+                startTime = recordsToInsert.minOf { it.startTime },
+                endTime = recordsToInsert.maxOf { it.endTime }
+            )
+            healthConnectClient.insertRecords(recordsToInsert)
+            Log.d("HealthSync", "Upserted ${recordsToInsert.size} nutrition records to Health Connect")
         }
 
-        return written to skipped
+        return recordsToInsert.size to skipped
     }
 
-    private suspend fun hasExistingNutritionRecord(startTime: Instant, endTime: Instant): Boolean {
-        return try {
+    /**
+     * Deletes records this app wrote before clientRecordId-based deduplication
+     * was introduced. Those records have no clientRecordId, so insertRecords
+     * cannot upsert over them and they would remain as duplicates forever.
+     * The dataOriginFilter is required to read own records with write-only
+     * permission, and also guarantees other apps' meals are never touched.
+     */
+    private suspend fun deleteLegacyNutritionRecords(startTime: Instant, endTime: Instant) {
+        val legacyIds = mutableListOf<String>()
+        var pageToken: String? = null
+
+        do {
             val response = healthConnectClient.readRecords(
                 ReadRecordsRequest(
                     recordType = NutritionRecord::class,
-                    timeRangeFilter = TimeRangeFilter.between(startTime, endTime)
+                    timeRangeFilter = TimeRangeFilter.between(startTime, endTime),
+                    dataOriginFilter = setOf(DataOrigin(context.packageName)),
+                    pageToken = pageToken
                 )
             )
-            response.records.isNotEmpty()
-        } catch (e: Exception) {
-            Log.e("HealthSync", "Failed to check existing nutrition records", e)
-            false
+            legacyIds.addAll(
+                response.records
+                    .filter { it.metadata.clientRecordId == null }
+                    .map { it.metadata.id }
+            )
+            pageToken = response.pageToken
+        } while (pageToken != null)
+
+        if (legacyIds.isNotEmpty()) {
+            healthConnectClient.deleteRecords(
+                recordType = NutritionRecord::class,
+                recordIdsList = legacyIds,
+                clientRecordIdsList = emptyList()
+            )
+            Log.d("HealthSync", "Deleted ${legacyIds.size} legacy nutrition records without clientRecordId")
         }
     }
 
