@@ -44,6 +44,14 @@ class HealthConnectManager(private val context: Context) {
             HealthPermission.getWritePermission(NutritionRecord::class)
         )
 
+        /**
+         * PERMISSIONS plus background read, which HealthSyncWorker needs to
+         * read data without a foreground activity. Requested together, but
+         * only PERMISSIONS are mandatory for the app to function.
+         */
+        val PERMISSIONS_WITH_BACKGROUND_READ =
+            PERMISSIONS + HealthPermission.PERMISSION_READ_HEALTH_DATA_IN_BACKGROUND
+
         fun isHealthConnectAvailable(context: Context): Boolean {
             return HealthConnectClient.getSdkStatus(context) == HealthConnectClient.SDK_AVAILABLE
         }
@@ -158,6 +166,11 @@ class HealthConnectManager(private val context: Context) {
     suspend fun hasAllPermissions(): Boolean {
         val granted = healthConnectClient.permissionController.getGrantedPermissions()
         return PERMISSIONS.all { it in granted }
+    }
+
+    suspend fun hasBackgroundReadPermission(): Boolean {
+        val granted = healthConnectClient.permissionController.getGrantedPermissions()
+        return HealthPermission.PERMISSION_READ_HEALTH_DATA_IN_BACKGROUND in granted
     }
 
     suspend fun readHealthSummary(): HealthSummary {
