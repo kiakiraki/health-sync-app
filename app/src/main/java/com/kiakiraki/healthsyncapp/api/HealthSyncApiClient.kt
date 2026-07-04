@@ -17,6 +17,7 @@ import com.kiakiraki.healthsyncapp.health.WeightRecord
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.engine.android.Android
+import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.client.request.get
 import io.ktor.client.request.header
@@ -29,6 +30,7 @@ import io.ktor.http.HttpHeaders
 import io.ktor.http.contentType
 import io.ktor.http.isSuccess
 import io.ktor.serialization.kotlinx.json.json
+import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.json.Json
 import java.time.Instant
 import java.time.LocalDate
@@ -43,6 +45,13 @@ class HealthSyncApiClient {
                 ignoreUnknownKeys = true
                 encodeDefaults = true
             })
+        }
+        // Without timeouts an unresponsive server leaves the sync stuck in
+        // "Syncing..." forever.
+        install(HttpTimeout) {
+            connectTimeoutMillis = 10_000
+            requestTimeoutMillis = 30_000
+            socketTimeoutMillis = 30_000
         }
     }
 
@@ -60,6 +69,8 @@ class HealthSyncApiClient {
                 val errorBody = response.bodyAsText()
                 Result.failure(ApiException(response.status.value, errorBody))
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Result.failure(e)
         }
@@ -80,6 +91,8 @@ class HealthSyncApiClient {
                 val errorBody = response.bodyAsText()
                 Result.failure(ApiException(response.status.value, errorBody))
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Result.failure(e)
         }

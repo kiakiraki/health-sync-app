@@ -52,6 +52,7 @@ import com.kiakiraki.healthsyncapp.health.MealSyncState
 import com.kiakiraki.healthsyncapp.health.SyncState
 import com.kiakiraki.healthsyncapp.ui.theme.HealthSyncAppTheme
 import com.kiakiraki.healthsyncapp.work.HealthSyncWorker
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -477,6 +478,8 @@ private suspend fun loadHealthData(
     try {
         val summary = healthConnectManager.readHealthSummary()
         onStateChange(HealthConnectState.Success(summary))
+    } catch (e: CancellationException) {
+        throw e
     } catch (e: Exception) {
         onStateChange(HealthConnectState.Error(e.message ?: "Unknown error occurred"))
     }
@@ -516,6 +519,8 @@ private suspend fun syncHealthData(
                 onStateChange(SyncState.Error(e.message ?: "Unknown error occurred", details))
             }
         )
+    } catch (e: CancellationException) {
+        throw e
     } catch (e: Exception) {
         Log.e("HealthSync", "Sync failed", e)
         onStateChange(SyncState.Error(e.message ?: "Unknown error occurred"))
@@ -541,6 +546,8 @@ private suspend fun syncMealData(
                 onStateChange(MealSyncState.Error(e.message ?: "Unknown error occurred"))
             }
         )
+    } catch (e: CancellationException) {
+        throw e
     } catch (e: Exception) {
         Log.e("HealthSync", "Meal sync failed", e)
         onStateChange(MealSyncState.Error(e.message ?: "Unknown error occurred"))
