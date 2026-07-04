@@ -10,6 +10,7 @@ import androidx.health.connect.client.records.BodyFatRecord
 import androidx.health.connect.client.records.HeartRateRecord
 import androidx.health.connect.client.records.MealType
 import androidx.health.connect.client.records.NutritionRecord
+import androidx.health.connect.client.records.Record
 import androidx.health.connect.client.records.SleepSessionRecord
 import androidx.health.connect.client.records.StepsRecord
 import androidx.health.connect.client.records.WeightRecord
@@ -23,12 +24,13 @@ import androidx.health.connect.client.units.Energy
 import androidx.health.connect.client.units.Mass
 import java.time.Instant
 import java.time.LocalDate
-import kotlinx.coroutines.CancellationException
 import java.time.LocalDateTime
 import java.time.Period
 import java.time.ZoneId
 import java.time.ZoneOffset
 import java.time.temporal.ChronoUnit
+import kotlin.reflect.KClass
+import kotlinx.coroutines.CancellationException
 
 class HealthConnectManager(private val context: Context) {
 
@@ -53,6 +55,13 @@ class HealthConnectManager(private val context: Context) {
         val PERMISSIONS_WITH_BACKGROUND_READ =
             PERMISSIONS + HealthPermission.PERMISSION_READ_HEALTH_DATA_IN_BACKGROUND
 
+        /**
+         * The meals API reports salt (NaCl) as on Japanese nutrition labels,
+         * while Health Connect stores sodium. Standard label conversion:
+         * salt = sodium x 2.54, i.e. sodium = salt / 2.54.
+         */
+        private const val SODIUM_GRAMS_PER_SALT_GRAM = 1 / 2.54
+
         fun isHealthConnectAvailable(context: Context): Boolean {
             return HealthConnectClient.getSdkStatus(context) == HealthConnectClient.SDK_AVAILABLE
         }
@@ -62,7 +71,7 @@ class HealthConnectManager(private val context: Context) {
          * (light, deep, or REM). Wearables like Pixel Watch provide these,
          * while Nest Hub typically only records "sleeping" (type 2).
          */
-        internal fun hasDetailedStages(stages: List<SleepStageRecord>): Boolean {
+        internal fun hasDetailedStages(stages: List<SleepStageData>): Boolean {
             val detailedTypes = setOf(4, 5, 6) // light, deep, rem
             return stages.any { it.stage in detailedTypes }
         }
@@ -72,10 +81,10 @@ class HealthConnectManager(private val context: Context) {
          * the given covered intervals. May return 0, 1, or multiple fragments.
          */
         internal fun trimStageByIntervals(
-            stage: SleepStageRecord,
-            coveredIntervals: List<SleepStageRecord>
-        ): List<SleepStageRecord> {
-            val result = mutableListOf<SleepStageRecord>()
+            stage: SleepStageData,
+            coveredIntervals: List<SleepStageData>
+        ): List<SleepStageData> {
+            val result = mutableListOf<SleepStageData>()
             var currentStart = stage.startTime
 
             for (covered in coveredIntervals) {
@@ -107,9 +116,9 @@ class HealthConnectManager(private val context: Context) {
          * by any preferred stage.
          */
         internal fun mergeStagesWithPriority(
-            preferred: List<SleepStageRecord>,
-            fallback: List<SleepStageRecord>
-        ): List<SleepStageRecord> {
+            preferred: List<SleepStageData>,
+            fallback: List<SleepStageData>
+        ): List<SleepStageData> {
             val sortedPreferred = preferred.sortedBy { it.startTime }
             val trimmedFallback = fallback.flatMap { stage ->
                 trimStageByIntervals(stage, sortedPreferred)
@@ -118,12 +127,12 @@ class HealthConnectManager(private val context: Context) {
         }
 
         internal fun mergeOverlappingSleepSessions(
-            sessions: List<SleepRecord>
-        ): List<SleepRecord> {
+            sessions: List<SleepData>
+        ): List<SleepData> {
             if (sessions.isEmpty()) return emptyList()
 
             val sorted = sessions.sortedBy { it.startTime }
-            val merged = mutableListOf<SleepRecord>()
+            val merged = mutableListOf<SleepData>()
 
             var current = sorted.first()
 
@@ -143,7 +152,7 @@ class HealthConnectManager(private val context: Context) {
                             (current.stages + session.stages).sortedBy { it.startTime }
                     }
 
-                    current = SleepRecord(
+                    current = SleepData(
                         durationMinutes = java.time.Duration.between(newStart, newEnd).toMinutes(),
                         startTime = newStart,
                         endTime = newEnd,
@@ -296,52 +305,52 @@ class HealthConnectManager(private val context: Context) {
         }
     }
 
-    suspend fun readWeightRecords(days: Int = 30): List<com.kiakiraki.healthsyncapp.health.WeightRecord> {
-        val now = Instant.now()
-        val startTime = now.minus(days.toLong(), ChronoUnit.DAYS)
-
-        val allRecords = mutableListOf<WeightRecord>()
+    /**
+     * Reads all pages of the given record type within the time range.
+     */
+    private suspend fun <T : Record> readAllRecords(
+        recordType: KClass<T>,
+        startTime: Instant,
+        endTime: Instant,
+        dataOriginFilter: Set<DataOrigin> = emptySet()
+    ): List<T> {
+        val allRecords = mutableListOf<T>()
         var pageToken: String? = null
 
         do {
-            val request = ReadRecordsRequest(
-                recordType = WeightRecord::class,
-                timeRangeFilter = TimeRangeFilter.between(startTime, now),
-                pageToken = pageToken
+            val response = healthConnectClient.readRecords(
+                ReadRecordsRequest(
+                    recordType = recordType,
+                    timeRangeFilter = TimeRangeFilter.between(startTime, endTime),
+                    dataOriginFilter = dataOriginFilter,
+                    pageToken = pageToken
+                )
             )
-            val response = healthConnectClient.readRecords(request)
             allRecords.addAll(response.records)
             pageToken = response.pageToken
         } while (pageToken != null)
 
-        return allRecords.map {
-            com.kiakiraki.healthsyncapp.health.WeightRecord(
+        return allRecords
+    }
+
+    suspend fun readWeightRecords(days: Int = 30): List<WeightData> {
+        val now = Instant.now()
+        val startTime = now.minus(days.toLong(), ChronoUnit.DAYS)
+
+        return readAllRecords(WeightRecord::class, startTime, now).map {
+            WeightData(
                 weightKg = it.weight.inKilograms,
                 time = it.time
             )
         }
     }
 
-    suspend fun readBloodPressureRecords(days: Int = 30): List<com.kiakiraki.healthsyncapp.health.BloodPressureRecord> {
+    suspend fun readBloodPressureRecords(days: Int = 30): List<BloodPressureData> {
         val now = Instant.now()
         val startTime = now.minus(days.toLong(), ChronoUnit.DAYS)
 
-        val allRecords = mutableListOf<BloodPressureRecord>()
-        var pageToken: String? = null
-
-        do {
-            val request = ReadRecordsRequest(
-                recordType = BloodPressureRecord::class,
-                timeRangeFilter = TimeRangeFilter.between(startTime, now),
-                pageToken = pageToken
-            )
-            val response = healthConnectClient.readRecords(request)
-            allRecords.addAll(response.records)
-            pageToken = response.pageToken
-        } while (pageToken != null)
-
-        return allRecords.map {
-            com.kiakiraki.healthsyncapp.health.BloodPressureRecord(
+        return readAllRecords(BloodPressureRecord::class, startTime, now).map {
+            BloodPressureData(
                 systolicMmHg = it.systolic.inMillimetersOfMercury,
                 diastolicMmHg = it.diastolic.inMillimetersOfMercury,
                 time = it.time
@@ -349,31 +358,17 @@ class HealthConnectManager(private val context: Context) {
         }
     }
 
-    suspend fun readSleepRecords(days: Int = 7): List<com.kiakiraki.healthsyncapp.health.SleepRecord> {
+    suspend fun readSleepRecords(days: Int = 7): List<SleepData> {
         val now = Instant.now()
         val startTime = now.minus(days.toLong(), ChronoUnit.DAYS)
 
-        val allRecords = mutableListOf<SleepSessionRecord>()
-        var pageToken: String? = null
-
-        do {
-            val request = ReadRecordsRequest(
-                recordType = SleepSessionRecord::class,
-                timeRangeFilter = TimeRangeFilter.between(startTime, now),
-                pageToken = pageToken
-            )
-            val response = healthConnectClient.readRecords(request)
-            allRecords.addAll(response.records)
-            pageToken = response.pageToken
-        } while (pageToken != null)
-
-        val sleepRecords = allRecords.map {
-            com.kiakiraki.healthsyncapp.health.SleepRecord(
+        val sleepRecords = readAllRecords(SleepSessionRecord::class, startTime, now).map {
+            SleepData(
                 durationMinutes = java.time.Duration.between(it.startTime, it.endTime).toMinutes(),
                 startTime = it.startTime,
                 endTime = it.endTime,
                 stages = it.stages.map { stage ->
-                    SleepStageRecord(
+                    SleepStageData(
                         stage = stage.stage,
                         startTime = stage.startTime,
                         endTime = stage.endTime
@@ -385,7 +380,7 @@ class HealthConnectManager(private val context: Context) {
         return mergeOverlappingSleepSessions(sleepRecords)
     }
 
-    suspend fun readStepsRecords(days: Int = 7): List<com.kiakiraki.healthsyncapp.health.StepsRecord> {
+    suspend fun readStepsRecords(days: Int = 7): List<StepsData> {
         val zoneId = ZoneId.systemDefault()
         val now = LocalDateTime.now(zoneId)
         // Buckets must start at midnight: slicing by Period.ofDays(1) from
@@ -402,7 +397,7 @@ class HealthConnectManager(private val context: Context) {
 
         return response.mapNotNull { result ->
             val count = result.result[StepsRecord.COUNT_TOTAL] ?: return@mapNotNull null
-            com.kiakiraki.healthsyncapp.health.StepsRecord(
+            StepsData(
                 count = count,
                 startTime = result.startTime.atZone(zoneId).toInstant(),
                 endTime = result.endTime.atZone(zoneId).toInstant()
@@ -410,53 +405,25 @@ class HealthConnectManager(private val context: Context) {
         }
     }
 
-    suspend fun readBodyFatRecords(days: Int = 30): List<com.kiakiraki.healthsyncapp.health.BodyFatRecord> {
+    suspend fun readBodyFatRecords(days: Int = 30): List<BodyFatData> {
         val now = Instant.now()
         val startTime = now.minus(days.toLong(), ChronoUnit.DAYS)
 
-        val allRecords = mutableListOf<BodyFatRecord>()
-        var pageToken: String? = null
-
-        do {
-            val request = ReadRecordsRequest(
-                recordType = BodyFatRecord::class,
-                timeRangeFilter = TimeRangeFilter.between(startTime, now),
-                pageToken = pageToken
-            )
-            val response = healthConnectClient.readRecords(request)
-            allRecords.addAll(response.records)
-            pageToken = response.pageToken
-        } while (pageToken != null)
-
-        return allRecords.map {
-            com.kiakiraki.healthsyncapp.health.BodyFatRecord(
+        return readAllRecords(BodyFatRecord::class, startTime, now).map {
+            BodyFatData(
                 percentage = it.percentage.value,
                 time = it.time
             )
         }
     }
 
-    suspend fun readHeartRateRecords(days: Int = 7): List<com.kiakiraki.healthsyncapp.health.HeartRateRecord> {
+    suspend fun readHeartRateRecords(days: Int = 7): List<HeartRateData> {
         val now = Instant.now()
         val startTime = now.minus(days.toLong(), ChronoUnit.DAYS)
 
-        val allRecords = mutableListOf<HeartRateRecord>()
-        var pageToken: String? = null
-
-        do {
-            val request = ReadRecordsRequest(
-                recordType = HeartRateRecord::class,
-                timeRangeFilter = TimeRangeFilter.between(startTime, now),
-                pageToken = pageToken
-            )
-            val response = healthConnectClient.readRecords(request)
-            allRecords.addAll(response.records)
-            pageToken = response.pageToken
-        } while (pageToken != null)
-
-        return allRecords.flatMap { record ->
+        return readAllRecords(HeartRateRecord::class, startTime, now).flatMap { record ->
             record.samples.map { sample ->
-                com.kiakiraki.healthsyncapp.health.HeartRateRecord(
+                HeartRateData(
                     beatsPerMinute = sample.beatsPerMinute,
                     time = sample.time
                 )
@@ -501,7 +468,7 @@ class HealthConnectManager(private val context: Context) {
                 totalFat = meal.fatG?.let { Mass.grams(it) },
                 totalCarbohydrate = meal.carbsG?.let { Mass.grams(it) },
                 dietaryFiber = meal.fiberG?.let { Mass.grams(it) },
-                sodium = meal.saltG?.let { Mass.grams(it * 0.3937) }
+                sodium = meal.saltG?.let { Mass.grams(it * SODIUM_GRAMS_PER_SALT_GRAM) }
             )
             recordsToInsert.add(record)
         }
@@ -526,25 +493,14 @@ class HealthConnectManager(private val context: Context) {
      * permission, and also guarantees other apps' meals are never touched.
      */
     private suspend fun deleteLegacyNutritionRecords(startTime: Instant, endTime: Instant) {
-        val legacyIds = mutableListOf<String>()
-        var pageToken: String? = null
-
-        do {
-            val response = healthConnectClient.readRecords(
-                ReadRecordsRequest(
-                    recordType = NutritionRecord::class,
-                    timeRangeFilter = TimeRangeFilter.between(startTime, endTime),
-                    dataOriginFilter = setOf(DataOrigin(context.packageName)),
-                    pageToken = pageToken
-                )
-            )
-            legacyIds.addAll(
-                response.records
-                    .filter { it.metadata.clientRecordId == null }
-                    .map { it.metadata.id }
-            )
-            pageToken = response.pageToken
-        } while (pageToken != null)
+        val legacyIds = readAllRecords(
+            NutritionRecord::class,
+            startTime,
+            endTime,
+            dataOriginFilter = setOf(DataOrigin(context.packageName))
+        )
+            .filter { it.metadata.clientRecordId == null }
+            .map { it.metadata.id }
 
         if (legacyIds.isNotEmpty()) {
             healthConnectClient.deleteRecords(
