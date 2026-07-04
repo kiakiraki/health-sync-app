@@ -388,7 +388,10 @@ class HealthConnectManager(private val context: Context) {
     suspend fun readStepsRecords(days: Int = 7): List<com.kiakiraki.healthsyncapp.health.StepsRecord> {
         val zoneId = ZoneId.systemDefault()
         val now = LocalDateTime.now(zoneId)
-        val startTime = now.minusDays(days.toLong())
+        // Buckets must start at midnight: slicing by Period.ofDays(1) from
+        // the current time would produce "24h from now" windows that split
+        // each calendar day's steps across two adjacent buckets.
+        val startTime = now.toLocalDate().minusDays(days - 1L).atStartOfDay()
 
         val request = AggregateGroupByPeriodRequest(
             metrics = setOf(StepsRecord.COUNT_TOTAL),
