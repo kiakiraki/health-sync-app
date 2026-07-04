@@ -23,6 +23,7 @@ import androidx.health.connect.client.units.Energy
 import androidx.health.connect.client.units.Mass
 import java.time.Instant
 import java.time.LocalDate
+import kotlinx.coroutines.CancellationException
 import java.time.LocalDateTime
 import java.time.Period
 import java.time.ZoneId
@@ -205,7 +206,10 @@ class HealthConnectManager(private val context: Context) {
             )
             val response = healthConnectClient.readRecords(request)
             response.records.maxByOrNull { it.time }?.weight?.inKilograms
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
+            Log.e("HealthSync", "Failed to read latest weight", e)
             null
         }
     }
@@ -218,7 +222,10 @@ class HealthConnectManager(private val context: Context) {
             )
             val response = healthConnectClient.readRecords(request)
             response.records.maxByOrNull { it.time }?.percentage?.value
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
+            Log.e("HealthSync", "Failed to read latest body fat", e)
             null
         }
     }
@@ -233,7 +240,10 @@ class HealthConnectManager(private val context: Context) {
             response.records.maxByOrNull { it.time }?.let {
                 Pair(it.systolic.inMillimetersOfMercury, it.diastolic.inMillimetersOfMercury)
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
+            Log.e("HealthSync", "Failed to read latest blood pressure", e)
             null
         }
     }
@@ -246,7 +256,10 @@ class HealthConnectManager(private val context: Context) {
             )
             val response = healthConnectClient.readRecords(request)
             response.records.maxByOrNull { it.endTime }?.samples?.lastOrNull()?.beatsPerMinute
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
+            Log.e("HealthSync", "Failed to read latest heart rate", e)
             null
         }
     }
@@ -259,7 +272,10 @@ class HealthConnectManager(private val context: Context) {
             )
             val response = healthConnectClient.aggregate(request)
             response[StepsRecord.COUNT_TOTAL]
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
+            Log.e("HealthSync", "Failed to aggregate total steps", e)
             null
         }
     }
@@ -272,7 +288,10 @@ class HealthConnectManager(private val context: Context) {
             )
             val response = healthConnectClient.aggregate(request)
             response[SleepSessionRecord.SLEEP_DURATION_TOTAL]?.toMinutes()
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
+            Log.e("HealthSync", "Failed to aggregate total sleep", e)
             null
         }
     }
@@ -281,29 +300,25 @@ class HealthConnectManager(private val context: Context) {
         val now = Instant.now()
         val startTime = now.minus(days.toLong(), ChronoUnit.DAYS)
 
-        return try {
-            val allRecords = mutableListOf<WeightRecord>()
-            var pageToken: String? = null
+        val allRecords = mutableListOf<WeightRecord>()
+        var pageToken: String? = null
 
-            do {
-                val request = ReadRecordsRequest(
-                    recordType = WeightRecord::class,
-                    timeRangeFilter = TimeRangeFilter.between(startTime, now),
-                    pageToken = pageToken
-                )
-                val response = healthConnectClient.readRecords(request)
-                allRecords.addAll(response.records)
-                pageToken = response.pageToken
-            } while (pageToken != null)
+        do {
+            val request = ReadRecordsRequest(
+                recordType = WeightRecord::class,
+                timeRangeFilter = TimeRangeFilter.between(startTime, now),
+                pageToken = pageToken
+            )
+            val response = healthConnectClient.readRecords(request)
+            allRecords.addAll(response.records)
+            pageToken = response.pageToken
+        } while (pageToken != null)
 
-            allRecords.map {
-                com.kiakiraki.healthsyncapp.health.WeightRecord(
-                    weightKg = it.weight.inKilograms,
-                    time = it.time
-                )
-            }
-        } catch (e: Exception) {
-            emptyList()
+        return allRecords.map {
+            com.kiakiraki.healthsyncapp.health.WeightRecord(
+                weightKg = it.weight.inKilograms,
+                time = it.time
+            )
         }
     }
 
@@ -311,30 +326,26 @@ class HealthConnectManager(private val context: Context) {
         val now = Instant.now()
         val startTime = now.minus(days.toLong(), ChronoUnit.DAYS)
 
-        return try {
-            val allRecords = mutableListOf<BloodPressureRecord>()
-            var pageToken: String? = null
+        val allRecords = mutableListOf<BloodPressureRecord>()
+        var pageToken: String? = null
 
-            do {
-                val request = ReadRecordsRequest(
-                    recordType = BloodPressureRecord::class,
-                    timeRangeFilter = TimeRangeFilter.between(startTime, now),
-                    pageToken = pageToken
-                )
-                val response = healthConnectClient.readRecords(request)
-                allRecords.addAll(response.records)
-                pageToken = response.pageToken
-            } while (pageToken != null)
+        do {
+            val request = ReadRecordsRequest(
+                recordType = BloodPressureRecord::class,
+                timeRangeFilter = TimeRangeFilter.between(startTime, now),
+                pageToken = pageToken
+            )
+            val response = healthConnectClient.readRecords(request)
+            allRecords.addAll(response.records)
+            pageToken = response.pageToken
+        } while (pageToken != null)
 
-            allRecords.map {
-                com.kiakiraki.healthsyncapp.health.BloodPressureRecord(
-                    systolicMmHg = it.systolic.inMillimetersOfMercury,
-                    diastolicMmHg = it.diastolic.inMillimetersOfMercury,
-                    time = it.time
-                )
-            }
-        } catch (e: Exception) {
-            emptyList()
+        return allRecords.map {
+            com.kiakiraki.healthsyncapp.health.BloodPressureRecord(
+                systolicMmHg = it.systolic.inMillimetersOfMercury,
+                diastolicMmHg = it.diastolic.inMillimetersOfMercury,
+                time = it.time
+            )
         }
     }
 
@@ -342,40 +353,36 @@ class HealthConnectManager(private val context: Context) {
         val now = Instant.now()
         val startTime = now.minus(days.toLong(), ChronoUnit.DAYS)
 
-        return try {
-            val allRecords = mutableListOf<SleepSessionRecord>()
-            var pageToken: String? = null
+        val allRecords = mutableListOf<SleepSessionRecord>()
+        var pageToken: String? = null
 
-            do {
-                val request = ReadRecordsRequest(
-                    recordType = SleepSessionRecord::class,
-                    timeRangeFilter = TimeRangeFilter.between(startTime, now),
-                    pageToken = pageToken
-                )
-                val response = healthConnectClient.readRecords(request)
-                allRecords.addAll(response.records)
-                pageToken = response.pageToken
-            } while (pageToken != null)
+        do {
+            val request = ReadRecordsRequest(
+                recordType = SleepSessionRecord::class,
+                timeRangeFilter = TimeRangeFilter.between(startTime, now),
+                pageToken = pageToken
+            )
+            val response = healthConnectClient.readRecords(request)
+            allRecords.addAll(response.records)
+            pageToken = response.pageToken
+        } while (pageToken != null)
 
-            val sleepRecords = allRecords.map {
-                com.kiakiraki.healthsyncapp.health.SleepRecord(
-                    durationMinutes = java.time.Duration.between(it.startTime, it.endTime).toMinutes(),
-                    startTime = it.startTime,
-                    endTime = it.endTime,
-                    stages = it.stages.map { stage ->
-                        SleepStageRecord(
-                            stage = stage.stage,
-                            startTime = stage.startTime,
-                            endTime = stage.endTime
-                        )
-                    }
-                )
-            }
-
-            mergeOverlappingSleepSessions(sleepRecords)
-        } catch (e: Exception) {
-            emptyList()
+        val sleepRecords = allRecords.map {
+            com.kiakiraki.healthsyncapp.health.SleepRecord(
+                durationMinutes = java.time.Duration.between(it.startTime, it.endTime).toMinutes(),
+                startTime = it.startTime,
+                endTime = it.endTime,
+                stages = it.stages.map { stage ->
+                    SleepStageRecord(
+                        stage = stage.stage,
+                        startTime = stage.startTime,
+                        endTime = stage.endTime
+                    )
+                }
+            )
         }
+
+        return mergeOverlappingSleepSessions(sleepRecords)
     }
 
     suspend fun readStepsRecords(days: Int = 7): List<com.kiakiraki.healthsyncapp.health.StepsRecord> {
@@ -383,24 +390,20 @@ class HealthConnectManager(private val context: Context) {
         val now = LocalDateTime.now(zoneId)
         val startTime = now.minusDays(days.toLong())
 
-        return try {
-            val request = AggregateGroupByPeriodRequest(
-                metrics = setOf(StepsRecord.COUNT_TOTAL),
-                timeRangeFilter = TimeRangeFilter.between(startTime, now),
-                timeRangeSlicer = Period.ofDays(1)
-            )
-            val response = healthConnectClient.aggregateGroupByPeriod(request)
+        val request = AggregateGroupByPeriodRequest(
+            metrics = setOf(StepsRecord.COUNT_TOTAL),
+            timeRangeFilter = TimeRangeFilter.between(startTime, now),
+            timeRangeSlicer = Period.ofDays(1)
+        )
+        val response = healthConnectClient.aggregateGroupByPeriod(request)
 
-            response.mapNotNull { result ->
-                val count = result.result[StepsRecord.COUNT_TOTAL] ?: return@mapNotNull null
-                com.kiakiraki.healthsyncapp.health.StepsRecord(
-                    count = count,
-                    startTime = result.startTime.atZone(zoneId).toInstant(),
-                    endTime = result.endTime.atZone(zoneId).toInstant()
-                )
-            }
-        } catch (e: Exception) {
-            emptyList()
+        return response.mapNotNull { result ->
+            val count = result.result[StepsRecord.COUNT_TOTAL] ?: return@mapNotNull null
+            com.kiakiraki.healthsyncapp.health.StepsRecord(
+                count = count,
+                startTime = result.startTime.atZone(zoneId).toInstant(),
+                endTime = result.endTime.atZone(zoneId).toInstant()
+            )
         }
     }
 
@@ -408,29 +411,25 @@ class HealthConnectManager(private val context: Context) {
         val now = Instant.now()
         val startTime = now.minus(days.toLong(), ChronoUnit.DAYS)
 
-        return try {
-            val allRecords = mutableListOf<BodyFatRecord>()
-            var pageToken: String? = null
+        val allRecords = mutableListOf<BodyFatRecord>()
+        var pageToken: String? = null
 
-            do {
-                val request = ReadRecordsRequest(
-                    recordType = BodyFatRecord::class,
-                    timeRangeFilter = TimeRangeFilter.between(startTime, now),
-                    pageToken = pageToken
-                )
-                val response = healthConnectClient.readRecords(request)
-                allRecords.addAll(response.records)
-                pageToken = response.pageToken
-            } while (pageToken != null)
+        do {
+            val request = ReadRecordsRequest(
+                recordType = BodyFatRecord::class,
+                timeRangeFilter = TimeRangeFilter.between(startTime, now),
+                pageToken = pageToken
+            )
+            val response = healthConnectClient.readRecords(request)
+            allRecords.addAll(response.records)
+            pageToken = response.pageToken
+        } while (pageToken != null)
 
-            allRecords.map {
-                com.kiakiraki.healthsyncapp.health.BodyFatRecord(
-                    percentage = it.percentage.value,
-                    time = it.time
-                )
-            }
-        } catch (e: Exception) {
-            emptyList()
+        return allRecords.map {
+            com.kiakiraki.healthsyncapp.health.BodyFatRecord(
+                percentage = it.percentage.value,
+                time = it.time
+            )
         }
     }
 
@@ -438,31 +437,27 @@ class HealthConnectManager(private val context: Context) {
         val now = Instant.now()
         val startTime = now.minus(days.toLong(), ChronoUnit.DAYS)
 
-        return try {
-            val allRecords = mutableListOf<HeartRateRecord>()
-            var pageToken: String? = null
+        val allRecords = mutableListOf<HeartRateRecord>()
+        var pageToken: String? = null
 
-            do {
-                val request = ReadRecordsRequest(
-                    recordType = HeartRateRecord::class,
-                    timeRangeFilter = TimeRangeFilter.between(startTime, now),
-                    pageToken = pageToken
+        do {
+            val request = ReadRecordsRequest(
+                recordType = HeartRateRecord::class,
+                timeRangeFilter = TimeRangeFilter.between(startTime, now),
+                pageToken = pageToken
+            )
+            val response = healthConnectClient.readRecords(request)
+            allRecords.addAll(response.records)
+            pageToken = response.pageToken
+        } while (pageToken != null)
+
+        return allRecords.flatMap { record ->
+            record.samples.map { sample ->
+                com.kiakiraki.healthsyncapp.health.HeartRateRecord(
+                    beatsPerMinute = sample.beatsPerMinute,
+                    time = sample.time
                 )
-                val response = healthConnectClient.readRecords(request)
-                allRecords.addAll(response.records)
-                pageToken = response.pageToken
-            } while (pageToken != null)
-
-            allRecords.flatMap { record ->
-                record.samples.map { sample ->
-                    com.kiakiraki.healthsyncapp.health.HeartRateRecord(
-                        beatsPerMinute = sample.beatsPerMinute,
-                        time = sample.time
-                    )
-                }
             }
-        } catch (e: Exception) {
-            emptyList()
         }
     }
 
