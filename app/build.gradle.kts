@@ -9,7 +9,7 @@ plugins {
 android {
     namespace = "com.kiakiraki.healthsyncapp"
     compileSdk {
-        version = release(36)
+        version = release(37)
     }
 
     defaultConfig {
