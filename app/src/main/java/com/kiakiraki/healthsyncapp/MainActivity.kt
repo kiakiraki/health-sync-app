@@ -1,6 +1,5 @@
 package com.kiakiraki.healthsyncapp
 
-import android.util.Log
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
@@ -33,18 +32,14 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.platform.LocalContext
-import com.kiakiraki.healthsyncapp.api.ApiException
-import com.kiakiraki.healthsyncapp.api.HealthSyncApiClient
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.kiakiraki.healthsyncapp.health.HealthConnectManager
 import com.kiakiraki.healthsyncapp.health.HealthConnectState
 import com.kiakiraki.healthsyncapp.health.HealthSummary
@@ -52,75 +47,42 @@ import com.kiakiraki.healthsyncapp.health.MealSyncState
 import com.kiakiraki.healthsyncapp.health.SyncState
 import com.kiakiraki.healthsyncapp.ui.theme.HealthSyncAppTheme
 import com.kiakiraki.healthsyncapp.work.HealthSyncWorker
-import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.launch
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
 class MainActivity : ComponentActivity() {
-    private lateinit var healthConnectManager: HealthConnectManager
-    private lateinit var apiClient: HealthSyncApiClient
-
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        healthConnectManager = HealthConnectManager(this)
-        apiClient = HealthSyncApiClient()
         HealthSyncWorker.schedule(this)
         enableEdgeToEdge()
         setContent {
             HealthSyncAppTheme {
-                HealthSyncScreen(healthConnectManager, apiClient)
+                HealthSyncScreen()
             }
-        }
-    }
-
-    override fun onDestroy() {
-        super.onDestroy()
-        if (::apiClient.isInitialized) {
-            apiClient.close()
         }
     }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun HealthSyncScreen(healthConnectManager: HealthConnectManager, apiClient: HealthSyncApiClient) {
-    var state by remember { mutableStateOf<HealthConnectState>(HealthConnectState.Loading) }
-    var syncState by remember { mutableStateOf<SyncState>(SyncState.Idle) }
-    var mealSyncState by remember { mutableStateOf<MealSyncState>(MealSyncState.Idle) }
-    val coroutineScope = rememberCoroutineScope()
+fun HealthSyncScreen(viewModel: HealthSyncViewModel = viewModel()) {
+    val state by viewModel.state.collectAsState()
+    val syncState by viewModel.syncState.collectAsState()
+    val mealSyncState by viewModel.mealSyncState.collectAsState()
+    val permissionRequest by viewModel.permissionRequest.collectAsState()
 
     val permissionLauncher = rememberLauncherForActivityResult(
-        contract = healthConnectManager.createPermissionRequestContract()
+        contract = viewModel.healthConnectManager.createPermissionRequestContract()
     ) { _ ->
-        coroutineScope.launch {
-            // Re-check granted permissions instead of inspecting the launcher
-            // result: the launcher may have requested only the optional
-            // background-read permission, whose denial must not block the UI.
-            if (healthConnectManager.hasAllPermissions()) {
-                loadHealthData(healthConnectManager) { state = it }
-            } else {
-                state = HealthConnectState.PermissionsRequired
-            }
-        }
+        viewModel.onPermissionResult()
     }
 
-    LaunchedEffect(Unit) {
-        if (!healthConnectManager.isAvailable()) {
-            state = HealthConnectState.NotSupported
-            return@LaunchedEffect
-        }
-
-        if (healthConnectManager.hasAllPermissions()) {
-            if (!healthConnectManager.hasBackgroundReadPermission()) {
-                // Existing installs granted the core permissions before the
-                // background sync feature existed; ask for the missing one.
-                permissionLauncher.launch(HealthConnectManager.PERMISSIONS_WITH_BACKGROUND_READ)
-            } else {
-                loadHealthData(healthConnectManager) { state = it }
-            }
-        } else {
-            state = HealthConnectState.PermissionsRequired
+    // The ViewModel asks for the permission dialog this way when an existing
+    // install lacks the optional background-read permission.
+    LaunchedEffect(permissionRequest) {
+        permissionRequest?.let {
+            viewModel.onPermissionRequestLaunched()
+            permissionLauncher.launch(it)
         }
     }
 
@@ -185,24 +147,9 @@ fun HealthSyncScreen(healthConnectManager: HealthConnectManager, apiClient: Heal
                         summary = currentState.summary,
                         syncState = syncState,
                         mealSyncState = mealSyncState,
-                        onRefresh = {
-                            coroutineScope.launch {
-                                state = HealthConnectState.Loading
-                                loadHealthData(healthConnectManager) { state = it }
-                            }
-                        },
-                        onSync = {
-                            coroutineScope.launch {
-                                syncState = SyncState.Syncing
-                                syncHealthData(healthConnectManager, apiClient) { syncState = it }
-                            }
-                        },
-                        onMealSync = {
-                            coroutineScope.launch {
-                                mealSyncState = MealSyncState.Syncing
-                                syncMealData(healthConnectManager, apiClient) { mealSyncState = it }
-                            }
-                        }
+                        onRefresh = { viewModel.refresh() },
+                        onSync = { viewModel.syncToCloud() },
+                        onMealSync = { viewModel.syncMeals() }
                     )
                 }
 
@@ -215,12 +162,7 @@ fun HealthSyncScreen(healthConnectManager: HealthConnectManager, apiClient: Heal
                     )
                     Spacer(modifier = Modifier.height(16.dp))
                     Button(
-                        onClick = {
-                            coroutineScope.launch {
-                                state = HealthConnectState.Loading
-                                loadHealthData(healthConnectManager) { state = it }
-                            }
-                        }
+                        onClick = { viewModel.refresh() }
                     ) {
                         Text("Retry")
                     }
@@ -468,88 +410,5 @@ fun HealthDataRow(
             style = MaterialTheme.typography.bodyMedium,
             fontWeight = FontWeight.Medium
         )
-    }
-}
-
-private suspend fun loadHealthData(
-    healthConnectManager: HealthConnectManager,
-    onStateChange: (HealthConnectState) -> Unit
-) {
-    try {
-        val summary = healthConnectManager.readHealthSummary()
-        onStateChange(HealthConnectState.Success(summary))
-    } catch (e: CancellationException) {
-        throw e
-    } catch (e: Exception) {
-        onStateChange(HealthConnectState.Error(e.message ?: "Unknown error occurred"))
-    }
-}
-
-private suspend fun syncHealthData(
-    healthConnectManager: HealthConnectManager,
-    apiClient: HealthSyncApiClient,
-    onStateChange: (SyncState) -> Unit
-) {
-    try {
-        val weightRecords = healthConnectManager.readWeightRecords(30)
-        val bodyFatRecords = healthConnectManager.readBodyFatRecords(30)
-        val bloodPressureRecords = healthConnectManager.readBloodPressureRecords(30)
-        val heartRateRecords = healthConnectManager.readHeartRateRecords(7)
-        val sleepRecords = healthConnectManager.readSleepRecords(7)
-        val stepsRecords = healthConnectManager.readStepsRecords(7)
-
-        val request = HealthSyncApiClient.buildSyncRequest(
-            weightRecords = weightRecords,
-            bodyFatRecords = bodyFatRecords,
-            bloodPressureRecords = bloodPressureRecords,
-            heartRateRecords = heartRateRecords,
-            sleepRecords = sleepRecords,
-            stepsRecords = stepsRecords
-        )
-
-        val result = apiClient.syncHealthData(request)
-        result.fold(
-            onSuccess = { onStateChange(SyncState.Success) },
-            onFailure = { e ->
-                Log.e("HealthSync", "Sync failed", e)
-                val details = (e as? ApiException)?.responseBody
-                if (details != null) {
-                    Log.e("HealthSync", "Response body: $details")
-                }
-                onStateChange(SyncState.Error(e.message ?: "Unknown error occurred", details))
-            }
-        )
-    } catch (e: CancellationException) {
-        throw e
-    } catch (e: Exception) {
-        Log.e("HealthSync", "Sync failed", e)
-        onStateChange(SyncState.Error(e.message ?: "Unknown error occurred"))
-    }
-}
-
-private suspend fun syncMealData(
-    healthConnectManager: HealthConnectManager,
-    apiClient: HealthSyncApiClient,
-    onStateChange: (MealSyncState) -> Unit
-) {
-    try {
-        val result = apiClient.fetchMeals(days = 7)
-        result.fold(
-            onSuccess = { meals ->
-                Log.d("HealthSync", "Fetched ${meals.size} meals from API")
-                val (written, skipped) = healthConnectManager.writeNutritionRecords(meals)
-                Log.d("HealthSync", "Meal sync complete: $written written, $skipped skipped")
-                onStateChange(MealSyncState.Success(written, skipped))
-            },
-            onFailure = { e ->
-                Log.e("HealthSync", "Meal sync failed", e)
-                onStateChange(MealSyncState.Error(e.message ?: "Unknown error occurred"))
-            }
-        )
-    } catch (e: CancellationException) {
-        throw e
-    } catch (e: Exception) {
-        Log.e("HealthSync", "Meal sync failed", e)
-        onStateChange(MealSyncState.Error(e.message ?: "Unknown error occurred"))
     }
 }
