@@ -188,16 +188,18 @@ class HealthConnectManager(private val context: Context) {
         val thirtyDaysAgo = now.minus(30, ChronoUnit.DAYS)
         val sevenDaysAgo = now.minus(7, ChronoUnit.DAYS)
 
-        val latestWeight = readLatestWeight(thirtyDaysAgo, now)
-        val latestBodyFat = readLatestBodyFat(thirtyDaysAgo, now)
+        val recentWeights = readRecentWeights(thirtyDaysAgo, now)
+        val recentBodyFat = readRecentBodyFat(thirtyDaysAgo, now)
         val latestBloodPressure = readLatestBloodPressure(thirtyDaysAgo, now)
         val latestHeartRate = readLatestHeartRate(sevenDaysAgo, now)
         val totalSteps = aggregateTotalSteps(sevenDaysAgo, now)
         val totalSleep = aggregateTotalSleep(sevenDaysAgo, now)
 
         return HealthSummary(
-            latestWeightKg = latestWeight,
-            latestBodyFatPercent = latestBodyFat,
+            latestWeightKg = recentWeights.getOrNull(0),
+            previousWeightKg = recentWeights.getOrNull(1),
+            latestBodyFatPercent = recentBodyFat.getOrNull(0),
+            previousBodyFatPercent = recentBodyFat.getOrNull(1),
             latestSystolicMmHg = latestBloodPressure?.first,
             latestDiastolicMmHg = latestBloodPressure?.second,
             latestHeartRateBpm = latestHeartRate,
@@ -207,35 +209,35 @@ class HealthConnectManager(private val context: Context) {
         )
     }
 
-    private suspend fun readLatestWeight(startTime: Instant, endTime: Instant): Double? {
+    /**
+     * Returns the most recent weight values, newest first (at most two:
+     * latest and previous, for the trend display).
+     */
+    private suspend fun readRecentWeights(startTime: Instant, endTime: Instant): List<Double> {
         return try {
-            val request = ReadRecordsRequest(
-                recordType = WeightRecord::class,
-                timeRangeFilter = TimeRangeFilter.between(startTime, endTime)
-            )
-            val response = healthConnectClient.readRecords(request)
-            response.records.maxByOrNull { it.time }?.weight?.inKilograms
+            readAllRecords(WeightRecord::class, startTime, endTime)
+                .sortedByDescending { it.time }
+                .take(2)
+                .map { it.weight.inKilograms }
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            Log.e("HealthSync", "Failed to read latest weight", e)
-            null
+            Log.e("HealthSync", "Failed to read recent weights", e)
+            emptyList()
         }
     }
 
-    private suspend fun readLatestBodyFat(startTime: Instant, endTime: Instant): Double? {
+    private suspend fun readRecentBodyFat(startTime: Instant, endTime: Instant): List<Double> {
         return try {
-            val request = ReadRecordsRequest(
-                recordType = BodyFatRecord::class,
-                timeRangeFilter = TimeRangeFilter.between(startTime, endTime)
-            )
-            val response = healthConnectClient.readRecords(request)
-            response.records.maxByOrNull { it.time }?.percentage?.value
+            readAllRecords(BodyFatRecord::class, startTime, endTime)
+                .sortedByDescending { it.time }
+                .take(2)
+                .map { it.percentage.value }
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            Log.e("HealthSync", "Failed to read latest body fat", e)
-            null
+            Log.e("HealthSync", "Failed to read recent body fat", e)
+            emptyList()
         }
     }
 

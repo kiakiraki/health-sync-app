@@ -7,7 +7,9 @@ import java.time.Instant
 @Serializable
 data class HealthSummary(
     val latestWeightKg: Double? = null,
+    val previousWeightKg: Double? = null,
     val latestBodyFatPercent: Double? = null,
+    val previousBodyFatPercent: Double? = null,
     val latestSystolicMmHg: Double? = null,
     val latestDiastolicMmHg: Double? = null,
     val latestHeartRateBpm: Long? = null,

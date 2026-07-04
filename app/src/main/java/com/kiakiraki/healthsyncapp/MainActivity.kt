@@ -309,6 +309,12 @@ fun HealthDataDisplay(
         HealthCard(title = "Weight") {
             if (summary.latestWeightKg != null) {
                 HealthDataRow(label = "Latest", value = String.format("%.1f kg", summary.latestWeightKg))
+                summary.previousWeightKg?.let { previous ->
+                    HealthDataRow(
+                        label = "Change",
+                        value = formatDelta(summary.latestWeightKg - previous, "kg")
+                    )
+                }
             } else {
                 Text("No data available", style = MaterialTheme.typography.bodyMedium)
             }
@@ -318,6 +324,12 @@ fun HealthDataDisplay(
         HealthCard(title = "Body Fat") {
             if (summary.latestBodyFatPercent != null) {
                 HealthDataRow(label = "Latest", value = String.format("%.1f %%", summary.latestBodyFatPercent))
+                summary.previousBodyFatPercent?.let { previous ->
+                    HealthDataRow(
+                        label = "Change",
+                        value = formatDelta(summary.latestBodyFatPercent - previous, "%")
+                    )
+                }
             } else {
                 Text("No data available", style = MaterialTheme.typography.bodyMedium)
             }
@@ -371,6 +383,16 @@ fun HealthDataDisplay(
         }
 
     }
+}
+
+/** Formats a change versus the previous reading, e.g. "▼ 0.3 kg". */
+private fun formatDelta(delta: Double, unit: String): String {
+    val arrow = when {
+        delta > 0 -> "▲ "
+        delta < 0 -> "▼ "
+        else -> "± "
+    }
+    return String.format("%s%.1f %s", arrow, kotlin.math.abs(delta), unit)
 }
 
 @Composable
