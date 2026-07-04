@@ -10,6 +10,8 @@ import com.kiakiraki.healthsyncapp.health.HealthConnectManager
 import com.kiakiraki.healthsyncapp.health.HealthConnectState
 import com.kiakiraki.healthsyncapp.health.MealSyncState
 import com.kiakiraki.healthsyncapp.health.SyncState
+import com.kiakiraki.healthsyncapp.health.SyncStatusStore
+import java.time.Instant
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -25,6 +27,7 @@ class HealthSyncViewModel(application: Application) : AndroidViewModel(applicati
 
     val healthConnectManager = HealthConnectManager(application)
     private val apiClient = HealthSyncApiClient()
+    private val syncStatusStore = SyncStatusStore(application)
 
     private val _state = MutableStateFlow<HealthConnectState>(HealthConnectState.Loading)
     val state: StateFlow<HealthConnectState> = _state.asStateFlow()
@@ -44,7 +47,22 @@ class HealthSyncViewModel(application: Application) : AndroidViewModel(applicati
     private val _permissionRequest = MutableStateFlow<Set<String>?>(null)
     val permissionRequest: StateFlow<Set<String>?> = _permissionRequest.asStateFlow()
 
+    private val _lastCloudSyncAt = MutableStateFlow(syncStatusStore.lastCloudSyncAt)
+    val lastCloudSyncAt: StateFlow<Instant?> = _lastCloudSyncAt.asStateFlow()
+
+    private val _lastMealSyncAt = MutableStateFlow(syncStatusStore.lastMealSyncAt)
+    val lastMealSyncAt: StateFlow<Instant?> = _lastMealSyncAt.asStateFlow()
+
+    // Picks up timestamps written by HealthSyncWorker while the screen is
+    // open. Must stay a field: SharedPreferences holds listeners weakly.
+    private val syncStatusListener =
+        android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, _ ->
+            _lastCloudSyncAt.value = syncStatusStore.lastCloudSyncAt
+            _lastMealSyncAt.value = syncStatusStore.lastMealSyncAt
+        }
+
     init {
+        syncStatusStore.registerListener(syncStatusListener)
         initialize()
     }
 
@@ -115,7 +133,11 @@ class HealthSyncViewModel(application: Application) : AndroidViewModel(applicati
                 )
 
                 apiClient.syncHealthData(request).fold(
-                    onSuccess = { _syncState.value = SyncState.Success },
+                    onSuccess = {
+                        syncStatusStore.lastCloudSyncAt = Instant.now()
+                        _lastCloudSyncAt.value = syncStatusStore.lastCloudSyncAt
+                        _syncState.value = SyncState.Success
+                    },
                     onFailure = { e ->
                         Log.e("HealthSync", "Sync failed", e)
                         val details = (e as? ApiException)?.responseBody
@@ -144,6 +166,8 @@ class HealthSyncViewModel(application: Application) : AndroidViewModel(applicati
                         Log.d("HealthSync", "Fetched ${meals.size} meals from API")
                         val (written, skipped) = healthConnectManager.writeNutritionRecords(meals)
                         Log.d("HealthSync", "Meal sync complete: $written written, $skipped skipped")
+                        syncStatusStore.lastMealSyncAt = Instant.now()
+                        _lastMealSyncAt.value = syncStatusStore.lastMealSyncAt
                         _mealSyncState.value = MealSyncState.Success(written, skipped)
                     },
                     onFailure = { e ->
@@ -161,6 +185,7 @@ class HealthSyncViewModel(application: Application) : AndroidViewModel(applicati
     }
 
     override fun onCleared() {
+        syncStatusStore.unregisterListener(syncStatusListener)
         apiClient.close()
     }
 }

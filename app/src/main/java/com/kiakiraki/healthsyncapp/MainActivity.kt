@@ -47,6 +47,7 @@ import com.kiakiraki.healthsyncapp.health.MealSyncState
 import com.kiakiraki.healthsyncapp.health.SyncState
 import com.kiakiraki.healthsyncapp.ui.theme.HealthSyncAppTheme
 import com.kiakiraki.healthsyncapp.work.HealthSyncWorker
+import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
@@ -70,6 +71,8 @@ fun HealthSyncScreen(viewModel: HealthSyncViewModel = viewModel()) {
     val syncState by viewModel.syncState.collectAsState()
     val mealSyncState by viewModel.mealSyncState.collectAsState()
     val permissionRequest by viewModel.permissionRequest.collectAsState()
+    val lastCloudSyncAt by viewModel.lastCloudSyncAt.collectAsState()
+    val lastMealSyncAt by viewModel.lastMealSyncAt.collectAsState()
 
     val permissionLauncher = rememberLauncherForActivityResult(
         contract = viewModel.healthConnectManager.createPermissionRequestContract()
@@ -147,6 +150,8 @@ fun HealthSyncScreen(viewModel: HealthSyncViewModel = viewModel()) {
                         summary = currentState.summary,
                         syncState = syncState,
                         mealSyncState = mealSyncState,
+                        lastCloudSyncAt = lastCloudSyncAt,
+                        lastMealSyncAt = lastMealSyncAt,
                         onRefresh = { viewModel.refresh() },
                         onSync = { viewModel.syncToCloud() },
                         onMealSync = { viewModel.syncMeals() }
@@ -177,6 +182,8 @@ fun HealthDataDisplay(
     summary: HealthSummary,
     syncState: SyncState,
     mealSyncState: MealSyncState,
+    lastCloudSyncAt: Instant?,
+    lastMealSyncAt: Instant?,
     onRefresh: () -> Unit,
     onSync: () -> Unit,
     onMealSync: () -> Unit
@@ -285,15 +292,17 @@ fun HealthDataDisplay(
             }
         }
 
-        // Last Updated
-        summary.lastUpdated?.let { lastUpdated ->
+        // Data refresh and per-direction sync status. "Data refreshed" is
+        // when this screen last read Health Connect, distinct from when the
+        // data was last synced with the cloud.
+        Column {
             val formatter = DateTimeFormatter.ofPattern("yyyy/MM/dd HH:mm")
                 .withZone(ZoneId.systemDefault())
-            Text(
-                text = "Last updated: ${formatter.format(lastUpdated)}",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
+            summary.lastUpdated?.let {
+                SyncStatusText("Data refreshed", formatter.format(it))
+            }
+            SyncStatusText("Cloud sync", lastCloudSyncAt?.let(formatter::format) ?: "Not synced yet")
+            SyncStatusText("Meal sync", lastMealSyncAt?.let(formatter::format) ?: "Not synced yet")
         }
 
         // Weight Card
@@ -362,6 +371,15 @@ fun HealthDataDisplay(
         }
 
     }
+}
+
+@Composable
+private fun SyncStatusText(label: String, value: String) {
+    Text(
+        text = "$label: $value",
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant
+    )
 }
 
 @Composable
