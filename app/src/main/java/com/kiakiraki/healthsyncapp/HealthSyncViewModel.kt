@@ -102,6 +102,18 @@ class HealthSyncViewModel(application: Application) : AndroidViewModel(applicati
         }
     }
 
+    /**
+     * Called by the UI after showing the sync result, so the result is not
+     * re-shown when the composable restarts (e.g. rotation).
+     */
+    fun consumeSyncResult() {
+        if (_syncState.value !is SyncState.Syncing) _syncState.value = SyncState.Idle
+    }
+
+    fun consumeMealSyncResult() {
+        if (_mealSyncState.value !is MealSyncState.Syncing) _mealSyncState.value = MealSyncState.Idle
+    }
+
     fun refresh() {
         _state.value = HealthConnectState.Loading
         viewModelScope.launch { loadHealthData() }
