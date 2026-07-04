@@ -51,6 +51,7 @@ import com.kiakiraki.healthsyncapp.health.HealthSummary
 import com.kiakiraki.healthsyncapp.health.MealSyncState
 import com.kiakiraki.healthsyncapp.health.SyncState
 import com.kiakiraki.healthsyncapp.ui.theme.HealthSyncAppTheme
+import com.kiakiraki.healthsyncapp.work.HealthSyncWorker
 import kotlinx.coroutines.launch
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -63,6 +64,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         healthConnectManager = HealthConnectManager(this)
         apiClient = HealthSyncApiClient()
+        HealthSyncWorker.schedule(this)
         enableEdgeToEdge()
         setContent {
             HealthSyncAppTheme {
@@ -89,9 +91,12 @@ fun HealthSyncScreen(healthConnectManager: HealthConnectManager, apiClient: Heal
 
     val permissionLauncher = rememberLauncherForActivityResult(
         contract = healthConnectManager.createPermissionRequestContract()
-    ) { grantedPermissions ->
+    ) { _ ->
         coroutineScope.launch {
-            if (grantedPermissions.containsAll(HealthConnectManager.PERMISSIONS)) {
+            // Re-check granted permissions instead of inspecting the launcher
+            // result: the launcher may have requested only the optional
+            // background-read permission, whose denial must not block the UI.
+            if (healthConnectManager.hasAllPermissions()) {
                 loadHealthData(healthConnectManager) { state = it }
             } else {
                 state = HealthConnectState.PermissionsRequired
@@ -106,7 +111,13 @@ fun HealthSyncScreen(healthConnectManager: HealthConnectManager, apiClient: Heal
         }
 
         if (healthConnectManager.hasAllPermissions()) {
-            loadHealthData(healthConnectManager) { state = it }
+            if (!healthConnectManager.hasBackgroundReadPermission()) {
+                // Existing installs granted the core permissions before the
+                // background sync feature existed; ask for the missing one.
+                permissionLauncher.launch(HealthConnectManager.PERMISSIONS_WITH_BACKGROUND_READ)
+            } else {
+                loadHealthData(healthConnectManager) { state = it }
+            }
         } else {
             state = HealthConnectState.PermissionsRequired
         }
@@ -161,7 +172,7 @@ fun HealthSyncScreen(healthConnectManager: HealthConnectManager, apiClient: Heal
                     Spacer(modifier = Modifier.height(16.dp))
                     Button(
                         onClick = {
-                            permissionLauncher.launch(HealthConnectManager.PERMISSIONS)
+                            permissionLauncher.launch(HealthConnectManager.PERMISSIONS_WITH_BACKGROUND_READ)
                         }
                     ) {
                         Text("Grant Permissions")
