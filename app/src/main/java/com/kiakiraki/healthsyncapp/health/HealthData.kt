@@ -91,6 +91,35 @@ data class HeartRateData(
     val time: Instant
 )
 
+@Serializable
+data class RestingHeartRateData(
+    val beatsPerMinute: Long,
+    @Serializable(with = InstantSerializer::class)
+    val time: Instant
+)
+
+@Serializable
+data class OxygenSaturationData(
+    val percentage: Double,
+    @Serializable(with = InstantSerializer::class)
+    val time: Instant
+)
+
+/**
+ * Daily calorie aggregates. Active and total come from different Health
+ * Connect record types, so either side may be missing for a given day;
+ * the server keeps the existing value when null is sent.
+ */
+@Serializable
+data class DailyCaloriesData(
+    val activeCaloriesKcal: Double?,
+    val totalCaloriesKcal: Double?,
+    @Serializable(with = InstantSerializer::class)
+    val startTime: Instant,
+    @Serializable(with = InstantSerializer::class)
+    val endTime: Instant
+)
+
 // Meal sync state
 sealed class MealSyncState {
     data object Idle : MealSyncState()
@@ -125,7 +154,11 @@ data class HealthSyncRequest(
     @SerialName("body_measurements") val bodyMeasurements: List<BodyMeasurementApi>,
     @SerialName("blood_pressure") val bloodPressure: List<BloodPressureApi>,
     @SerialName("sleep_sessions") val sleepSessions: List<SleepSessionApi>,
-    val steps: List<StepsApi>
+    val steps: List<StepsApi>,
+    @SerialName("heart_rate") val heartRate: List<HeartRateApi> = emptyList(),
+    @SerialName("resting_heart_rate") val restingHeartRate: List<RestingHeartRateApi> = emptyList(),
+    val spo2: List<Spo2Api> = emptyList(),
+    @SerialName("daily_activity") val dailyActivity: List<DailyActivityApi> = emptyList()
 )
 
 @Serializable
@@ -162,6 +195,31 @@ data class SleepSessionApi(
 data class StepsApi(
     val date: String,
     val count: Long
+)
+
+@Serializable
+data class HeartRateApi(
+    @SerialName("recorded_at") val recordedAt: String,
+    val bpm: Long
+)
+
+@Serializable
+data class RestingHeartRateApi(
+    val date: String,
+    val bpm: Long
+)
+
+@Serializable
+data class Spo2Api(
+    @SerialName("recorded_at") val recordedAt: String,
+    val percentage: Double
+)
+
+@Serializable
+data class DailyActivityApi(
+    val date: String,
+    @SerialName("active_calories_kcal") val activeCaloriesKcal: Double?,
+    @SerialName("total_calories_kcal") val totalCaloriesKcal: Double?
 )
 
 object InstantSerializer : kotlinx.serialization.KSerializer<Instant> {

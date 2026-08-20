@@ -135,35 +135,44 @@ class HealthSyncViewModel(application: Application) : AndroidViewModel(applicati
         _syncState.value = SyncState.Syncing
         viewModelScope.launch {
             try {
-                val request = HealthSyncApiClient.buildSyncRequest(
+                val requests = HealthSyncApiClient.buildSyncRequests(
                     weightRecords = healthConnectManager.readWeightRecords(30),
                     bodyFatRecords = healthConnectManager.readBodyFatRecords(30),
                     bloodPressureRecords = healthConnectManager.readBloodPressureRecords(30),
                     heartRateRecords = healthConnectManager.readHeartRateRecords(7),
                     sleepRecords = healthConnectManager.readSleepRecords(7),
-                    stepsRecords = healthConnectManager.readStepsRecords(7)
+                    stepsRecords = healthConnectManager.readStepsRecords(7),
+                    restingHeartRateRecords = healthConnectManager.readRestingHeartRateRecords(7),
+                    oxygenSaturationRecords = healthConnectManager.readOxygenSaturationRecords(7),
+                    dailyCaloriesRecords = healthConnectManager.readDailyCaloriesRecords(7)
                 )
 
-                apiClient.syncHealthData(request).fold(
-                    onSuccess = {
-                        syncStatusStore.lastCloudSyncAt = Instant.now()
-                        _lastCloudSyncAt.value = syncStatusStore.lastCloudSyncAt
-                        _syncState.value = SyncState.Success
-                    },
-                    onFailure = { e ->
-                        Log.e("HealthSync", "Sync failed", e)
-                        val details = (e as? ApiException)?.responseBody
-                        if (details != null) {
-                            Log.e("HealthSync", "Response body: $details")
-                        }
-                        _syncState.value = SyncState.Error(e.message ?: "Unknown error occurred", details)
-                    }
+                Log.d(
+                    "HealthSync",
+                    "Sync payload: " +
+                        "${requests.sumOf { it.heartRate.size }} heart rate, " +
+                        "${requests.sumOf { it.spo2.size }} spo2, " +
+                        "${requests.sumOf { it.restingHeartRate.size }} resting HR, " +
+                        "${requests.sumOf { it.dailyActivity.size }} daily activity"
                 )
+                // Upserts are idempotent, so a failure mid-way can simply be
+                // retried by the user; already-sent requests are harmless.
+                requests.forEachIndexed { index, request ->
+                    Log.d("HealthSync", "Uploading sync request ${index + 1}/${requests.size}")
+                    apiClient.syncHealthData(request).getOrThrow()
+                }
+                syncStatusStore.lastCloudSyncAt = Instant.now()
+                _lastCloudSyncAt.value = syncStatusStore.lastCloudSyncAt
+                _syncState.value = SyncState.Success
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
                 Log.e("HealthSync", "Sync failed", e)
-                _syncState.value = SyncState.Error(e.message ?: "Unknown error occurred")
+                val details = (e as? ApiException)?.responseBody
+                if (details != null) {
+                    Log.e("HealthSync", "Response body: $details")
+                }
+                _syncState.value = SyncState.Error(e.message ?: "Unknown error occurred", details)
             }
         }
     }

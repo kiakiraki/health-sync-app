@@ -5,14 +5,18 @@ import android.util.Log
 import androidx.health.connect.client.HealthConnectClient
 import androidx.health.connect.client.PermissionController
 import androidx.health.connect.client.permission.HealthPermission
+import androidx.health.connect.client.records.ActiveCaloriesBurnedRecord
 import androidx.health.connect.client.records.BloodPressureRecord
 import androidx.health.connect.client.records.BodyFatRecord
 import androidx.health.connect.client.records.HeartRateRecord
 import androidx.health.connect.client.records.MealType
 import androidx.health.connect.client.records.NutritionRecord
+import androidx.health.connect.client.records.OxygenSaturationRecord
 import androidx.health.connect.client.records.Record
+import androidx.health.connect.client.records.RestingHeartRateRecord
 import androidx.health.connect.client.records.SleepSessionRecord
 import androidx.health.connect.client.records.StepsRecord
+import androidx.health.connect.client.records.TotalCaloriesBurnedRecord
 import androidx.health.connect.client.records.WeightRecord
 import androidx.health.connect.client.records.metadata.DataOrigin
 import androidx.health.connect.client.records.metadata.Metadata
@@ -42,6 +46,10 @@ class HealthConnectManager(private val context: Context) {
             HealthPermission.getReadPermission(BodyFatRecord::class),
             HealthPermission.getReadPermission(BloodPressureRecord::class),
             HealthPermission.getReadPermission(HeartRateRecord::class),
+            HealthPermission.getReadPermission(RestingHeartRateRecord::class),
+            HealthPermission.getReadPermission(OxygenSaturationRecord::class),
+            HealthPermission.getReadPermission(ActiveCaloriesBurnedRecord::class),
+            HealthPermission.getReadPermission(TotalCaloriesBurnedRecord::class),
             HealthPermission.getReadPermission(SleepSessionRecord::class),
             HealthPermission.getReadPermission(StepsRecord::class),
             HealthPermission.getWritePermission(NutritionRecord::class)
@@ -430,6 +438,64 @@ class HealthConnectManager(private val context: Context) {
                     time = sample.time
                 )
             }
+        }
+    }
+
+    suspend fun readRestingHeartRateRecords(days: Int = 7): List<RestingHeartRateData> {
+        val now = Instant.now()
+        val startTime = now.minus(days.toLong(), ChronoUnit.DAYS)
+
+        return readAllRecords(RestingHeartRateRecord::class, startTime, now).map {
+            RestingHeartRateData(
+                beatsPerMinute = it.beatsPerMinute,
+                time = it.time
+            )
+        }
+    }
+
+    suspend fun readOxygenSaturationRecords(days: Int = 7): List<OxygenSaturationData> {
+        val now = Instant.now()
+        val startTime = now.minus(days.toLong(), ChronoUnit.DAYS)
+
+        return readAllRecords(OxygenSaturationRecord::class, startTime, now).map {
+            OxygenSaturationData(
+                percentage = it.percentage.value,
+                time = it.time
+            )
+        }
+    }
+
+    /**
+     * Aggregates active and total calories per calendar day. The two values
+     * come from different record types, so either may be null for a day
+     * where only one source has data.
+     */
+    suspend fun readDailyCaloriesRecords(days: Int = 7): List<DailyCaloriesData> {
+        val zoneId = ZoneId.systemDefault()
+        val now = LocalDateTime.now(zoneId)
+        // Buckets must start at midnight, same as readStepsRecords.
+        val startTime = now.toLocalDate().minusDays(days - 1L).atStartOfDay()
+
+        val request = AggregateGroupByPeriodRequest(
+            metrics = setOf(
+                ActiveCaloriesBurnedRecord.ACTIVE_CALORIES_TOTAL,
+                TotalCaloriesBurnedRecord.ENERGY_TOTAL
+            ),
+            timeRangeFilter = TimeRangeFilter.between(startTime, now),
+            timeRangeSlicer = Period.ofDays(1)
+        )
+        val response = healthConnectClient.aggregateGroupByPeriod(request)
+
+        return response.mapNotNull { result ->
+            val active = result.result[ActiveCaloriesBurnedRecord.ACTIVE_CALORIES_TOTAL]?.inKilocalories
+            val total = result.result[TotalCaloriesBurnedRecord.ENERGY_TOTAL]?.inKilocalories
+            if (active == null && total == null) return@mapNotNull null
+            DailyCaloriesData(
+                activeCaloriesKcal = active,
+                totalCaloriesKcal = total,
+                startTime = result.startTime.atZone(zoneId).toInstant(),
+                endTime = result.endTime.atZone(zoneId).toInstant()
+            )
         }
     }
 

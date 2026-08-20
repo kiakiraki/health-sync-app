@@ -5,13 +5,20 @@ import com.kiakiraki.healthsyncapp.health.BloodPressureApi
 import com.kiakiraki.healthsyncapp.health.BloodPressureData
 import com.kiakiraki.healthsyncapp.health.BodyFatData
 import com.kiakiraki.healthsyncapp.health.BodyMeasurementApi
+import com.kiakiraki.healthsyncapp.health.DailyActivityApi
+import com.kiakiraki.healthsyncapp.health.DailyCaloriesData
 import com.kiakiraki.healthsyncapp.health.HealthSyncRequest
+import com.kiakiraki.healthsyncapp.health.HeartRateApi
 import com.kiakiraki.healthsyncapp.health.HeartRateData
 import com.kiakiraki.healthsyncapp.health.MealData
 import com.kiakiraki.healthsyncapp.health.MealsResponse
+import com.kiakiraki.healthsyncapp.health.OxygenSaturationData
+import com.kiakiraki.healthsyncapp.health.RestingHeartRateApi
+import com.kiakiraki.healthsyncapp.health.RestingHeartRateData
 import com.kiakiraki.healthsyncapp.health.SleepData
 import com.kiakiraki.healthsyncapp.health.SleepSessionApi
 import com.kiakiraki.healthsyncapp.health.SleepStageApi
+import com.kiakiraki.healthsyncapp.health.Spo2Api
 import com.kiakiraki.healthsyncapp.health.StepsApi
 import com.kiakiraki.healthsyncapp.health.StepsData
 import com.kiakiraki.healthsyncapp.health.WeightData
@@ -115,25 +122,96 @@ class HealthSyncApiClient {
 
         private val dateFormatter = DateTimeFormatter.ISO_LOCAL_DATE
 
-        fun buildSyncRequest(
+        /**
+         * The server processes one /sync call in a single D1 transaction
+         * with no statement-count guard, and RingConn writes heart rate
+         * samples every few minutes, so heart_rate + spo2 samples are
+         * capped per request. Upserts are idempotent, making the split
+         * requests (and retries) safe.
+         */
+        internal const val MAX_SAMPLES_PER_REQUEST = 1000
+
+        /**
+         * Builds the /sync payloads. The first request carries all metrics;
+         * when heart_rate + spo2 samples exceed [MAX_SAMPLES_PER_REQUEST],
+         * the overflow is split into follow-up requests containing only
+         * those samples. Callers must POST every returned request.
+         */
+        fun buildSyncRequests(
             weightRecords: List<WeightData>,
             bodyFatRecords: List<BodyFatData>,
             bloodPressureRecords: List<BloodPressureData>,
             heartRateRecords: List<HeartRateData>,
             sleepRecords: List<SleepData>,
-            stepsRecords: List<StepsData>
-        ): HealthSyncRequest {
-            val bodyMeasurements = buildBodyMeasurements(weightRecords, bodyFatRecords)
-            val bloodPressure = buildBloodPressure(bloodPressureRecords, heartRateRecords)
-            val sleepSessions = buildSleepSessions(sleepRecords)
-            val steps = buildSteps(stepsRecords)
-
-            return HealthSyncRequest(
-                bodyMeasurements = bodyMeasurements,
-                bloodPressure = bloodPressure,
-                sleepSessions = sleepSessions,
-                steps = steps
+            stepsRecords: List<StepsData>,
+            restingHeartRateRecords: List<RestingHeartRateData> = emptyList(),
+            oxygenSaturationRecords: List<OxygenSaturationData> = emptyList(),
+            dailyCaloriesRecords: List<DailyCaloriesData> = emptyList()
+        ): List<HealthSyncRequest> {
+            val baseRequest = HealthSyncRequest(
+                bodyMeasurements = buildBodyMeasurements(weightRecords, bodyFatRecords),
+                bloodPressure = buildBloodPressure(bloodPressureRecords, heartRateRecords),
+                sleepSessions = buildSleepSessions(sleepRecords),
+                steps = buildSteps(stepsRecords),
+                restingHeartRate = buildRestingHeartRate(restingHeartRateRecords),
+                dailyActivity = buildDailyActivity(dailyCaloriesRecords)
             )
+
+            val heartRate = heartRateRecords
+                .sortedBy { it.time }
+                .map { HeartRateApi(recordedAt = formatInstantToIso(it.time), bpm = it.beatsPerMinute) }
+            val spo2 = oxygenSaturationRecords
+                .sortedBy { it.time }
+                .map { Spo2Api(recordedAt = formatInstantToIso(it.time), percentage = it.percentage) }
+
+            val samples: List<Any> = heartRate + spo2
+            if (samples.isEmpty()) return listOf(baseRequest)
+
+            return samples.chunked(MAX_SAMPLES_PER_REQUEST).mapIndexed { index, chunk ->
+                val followUp = if (index == 0) {
+                    baseRequest
+                } else {
+                    HealthSyncRequest(
+                        bodyMeasurements = emptyList(),
+                        bloodPressure = emptyList(),
+                        sleepSessions = emptyList(),
+                        steps = emptyList()
+                    )
+                }
+                followUp.copy(
+                    heartRate = chunk.filterIsInstance<HeartRateApi>(),
+                    spo2 = chunk.filterIsInstance<Spo2Api>()
+                )
+            }
+        }
+
+        private fun buildRestingHeartRate(
+            records: List<RestingHeartRateData>
+        ): List<RestingHeartRateApi> {
+            return records
+                .groupBy { LocalDate.ofInstant(it.time, ZoneId.systemDefault()) }
+                .map { (date, sameDay) ->
+                    RestingHeartRateApi(
+                        date = dateFormatter.format(date),
+                        bpm = sameDay.maxBy { it.time }.beatsPerMinute
+                    )
+                }
+                .sortedBy { it.date }
+        }
+
+        private fun buildDailyActivity(
+            records: List<DailyCaloriesData>
+        ): List<DailyActivityApi> {
+            return records
+                .filter { it.activeCaloriesKcal != null || it.totalCaloriesKcal != null }
+                .map {
+                    DailyActivityApi(
+                        date = dateFormatter.format(LocalDate.ofInstant(it.startTime, ZoneId.systemDefault())),
+                        activeCaloriesKcal = it.activeCaloriesKcal,
+                        totalCaloriesKcal = it.totalCaloriesKcal
+                    )
+                }
+                .sortedBy { it.date }
         }
 
         private fun buildBodyMeasurements(

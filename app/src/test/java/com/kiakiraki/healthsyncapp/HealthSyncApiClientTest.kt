@@ -22,14 +22,14 @@ class HealthSyncApiClientTest {
         heartRate: List<HeartRateData> = emptyList(),
         sleep: List<SleepData> = emptyList(),
         steps: List<StepsData> = emptyList()
-    ) = HealthSyncApiClient.buildSyncRequest(
+    ) = HealthSyncApiClient.buildSyncRequests(
         weightRecords = weight,
         bodyFatRecords = bodyFat,
         bloodPressureRecords = bloodPressure,
         heartRateRecords = heartRate,
         sleepRecords = sleep,
         stepsRecords = steps
-    )
+    ).single()
 
     @Test
     fun `weight and body fat in the same minute merge into one measurement`() {

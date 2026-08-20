@@ -46,16 +46,32 @@ class HealthSyncWorker(
 
         val apiClient = HealthSyncApiClient()
         return try {
-            val request = HealthSyncApiClient.buildSyncRequest(
+            val requests = HealthSyncApiClient.buildSyncRequests(
                 weightRecords = healthConnectManager.readWeightRecords(30),
                 bodyFatRecords = healthConnectManager.readBodyFatRecords(30),
                 bloodPressureRecords = healthConnectManager.readBloodPressureRecords(30),
                 heartRateRecords = healthConnectManager.readHeartRateRecords(7),
                 sleepRecords = healthConnectManager.readSleepRecords(7),
-                stepsRecords = healthConnectManager.readStepsRecords(7)
+                stepsRecords = healthConnectManager.readStepsRecords(7),
+                restingHeartRateRecords = healthConnectManager.readRestingHeartRateRecords(7),
+                oxygenSaturationRecords = healthConnectManager.readOxygenSaturationRecords(7),
+                dailyCaloriesRecords = healthConnectManager.readDailyCaloriesRecords(7)
             )
             val syncStatusStore = SyncStatusStore(applicationContext)
-            apiClient.syncHealthData(request).getOrThrow()
+            Log.d(
+                TAG,
+                "Sync payload: " +
+                    "${requests.sumOf { it.heartRate.size }} heart rate, " +
+                    "${requests.sumOf { it.spo2.size }} spo2, " +
+                    "${requests.sumOf { it.restingHeartRate.size }} resting HR, " +
+                    "${requests.sumOf { it.dailyActivity.size }} daily activity"
+            )
+            // Upserts are idempotent, so a mid-way failure is safe to retry
+            // from the beginning on the next attempt.
+            requests.forEachIndexed { index, request ->
+                Log.d(TAG, "Uploading sync request ${index + 1}/${requests.size}")
+                apiClient.syncHealthData(request).getOrThrow()
+            }
             syncStatusStore.lastCloudSyncAt = Instant.now()
 
             val meals = apiClient.fetchMeals(days = 7).getOrThrow()

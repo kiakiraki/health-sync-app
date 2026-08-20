@@ -43,14 +43,14 @@ class SleepStageTest {
                 )
             )
 
-            val request = HealthSyncApiClient.buildSyncRequest(
+            val request = HealthSyncApiClient.buildSyncRequests(
                 weightRecords = emptyList(),
                 bodyFatRecords = emptyList(),
                 bloodPressureRecords = emptyList(),
                 heartRateRecords = emptyList(),
                 sleepRecords = listOf(sleepRecord),
                 stepsRecords = emptyList()
-            )
+            ).single()
 
             assertEquals(
                 "stage type $healthConnectType should map to \"$expectedApiString\"",
@@ -75,14 +75,14 @@ class SleepStageTest {
             )
         )
 
-        val request = HealthSyncApiClient.buildSyncRequest(
+        val request = HealthSyncApiClient.buildSyncRequests(
             weightRecords = emptyList(),
             bodyFatRecords = emptyList(),
             bloodPressureRecords = emptyList(),
             heartRateRecords = emptyList(),
             sleepRecords = listOf(sleepRecord),
             stepsRecords = emptyList()
-        )
+        ).single()
 
         assertEquals("unknown", request.sleepSessions[0].stages[0].stage)
     }
@@ -102,14 +102,14 @@ class SleepStageTest {
             )
         )
 
-        val request = HealthSyncApiClient.buildSyncRequest(
+        val request = HealthSyncApiClient.buildSyncRequests(
             weightRecords = emptyList(),
             bodyFatRecords = emptyList(),
             bloodPressureRecords = emptyList(),
             heartRateRecords = emptyList(),
             sleepRecords = listOf(sleepRecord),
             stepsRecords = emptyList()
-        )
+        ).single()
 
         val session = request.sleepSessions[0]
         assertEquals(8.0, session.durationHours, 0.01)
@@ -131,14 +131,14 @@ class SleepStageTest {
             endTime = instant("2026-02-25T07:00:00Z")
         )
 
-        val request = HealthSyncApiClient.buildSyncRequest(
+        val request = HealthSyncApiClient.buildSyncRequests(
             weightRecords = emptyList(),
             bodyFatRecords = emptyList(),
             bloodPressureRecords = emptyList(),
             heartRateRecords = emptyList(),
             sleepRecords = listOf(sleepRecord),
             stepsRecords = emptyList()
-        )
+        ).single()
 
         assertTrue(request.sleepSessions[0].stages.isEmpty())
     }
