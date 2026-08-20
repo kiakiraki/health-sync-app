@@ -147,6 +147,14 @@ class HealthSyncViewModel(application: Application) : AndroidViewModel(applicati
                     dailyCaloriesRecords = healthConnectManager.readDailyCaloriesRecords(7)
                 )
 
+                Log.d(
+                    "HealthSync",
+                    "Sync payload: " +
+                        "${requests.sumOf { it.heartRate.size }} heart rate, " +
+                        "${requests.sumOf { it.spo2.size }} spo2, " +
+                        "${requests.sumOf { it.restingHeartRate.size }} resting HR, " +
+                        "${requests.sumOf { it.dailyActivity.size }} daily activity"
+                )
                 // Upserts are idempotent, so a failure mid-way can simply be
                 // retried by the user; already-sent requests are harmless.
                 requests.forEachIndexed { index, request ->

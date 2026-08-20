@@ -58,6 +58,14 @@ class HealthSyncWorker(
                 dailyCaloriesRecords = healthConnectManager.readDailyCaloriesRecords(7)
             )
             val syncStatusStore = SyncStatusStore(applicationContext)
+            Log.d(
+                TAG,
+                "Sync payload: " +
+                    "${requests.sumOf { it.heartRate.size }} heart rate, " +
+                    "${requests.sumOf { it.spo2.size }} spo2, " +
+                    "${requests.sumOf { it.restingHeartRate.size }} resting HR, " +
+                    "${requests.sumOf { it.dailyActivity.size }} daily activity"
+            )
             // Upserts are idempotent, so a mid-way failure is safe to retry
             // from the beginning on the next attempt.
             requests.forEachIndexed { index, request ->
