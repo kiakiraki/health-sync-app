@@ -43,7 +43,7 @@ HealthSyncApiClient.kt (API - Ktor HTTP client for cloud sync)
 **Health Layer** (`health/`):
 - `HealthConnectManager`: Handles permissions, data queries, aggregations, and nutrition writes
 - `HealthData.kt`: Data models using sealed classes for state (`HealthConnectState`, `SyncState`, `MealSyncState`)
-- Reads: Weight, Body Fat, Blood Pressure, Heart Rate, Sleep, Steps
+- Reads: Weight, Body Fat, Blood Pressure, Heart Rate, Resting Heart Rate, SpO2, Active/Total Calories (daily aggregates), Sleep, Steps
 - Writes: Nutrition (meals fetched from the backend; upserted via `clientRecordId = "meal-<id>"` — the app has `WRITE_NUTRITION` only, so reading others' records is not possible and own records must be read with `dataOriginFilter`)
 
 **API Layer** (`api/HealthSyncApiClient.kt`):
@@ -51,6 +51,7 @@ HealthSyncApiClient.kt (API - Ktor HTTP client for cloud sync)
 - Endpoint URL is injected via `BuildConfig.HEALTH_SYNC_API_URL`
 - Custom `InstantSerializer` for epoch millisecond serialization
 - `fetchMeals()`: Retrieves meal records (last 7 days) for writing to Health Connect
+- `buildSyncRequests()`: Builds the `/sync` payloads. The server handles one `/sync` call in a single D1 transaction, so high-frequency samples are split: combined `heart_rate` + `spo2` samples are capped at `MAX_SAMPLES_PER_REQUEST` (1000) per POST; overflow goes into follow-up requests carrying only those samples. All other metrics ride on the first request. Server upserts are idempotent (`recorded_at`/`date` unique keys), so splitting and retrying are safe — callers must POST every returned request
 
 ### Configuration
 
@@ -63,6 +64,6 @@ HealthSyncApiClient.kt (API - Ktor HTTP client for cloud sync)
 
 - Kotlin 2.4.0 with kotlinx.serialization
 - Jetpack Compose (2026.04.01 BOM) + Material 3
-- Health Connect Client 1.2.0-alpha04
+- Health Connect Client 1.2.0-alpha05
 - Ktor Client 3.5.1
 - WorkManager 2.11.2 (declared but no Worker implemented yet)
